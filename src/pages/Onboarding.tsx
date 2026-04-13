@@ -14,7 +14,6 @@ const generateUniqueId = async (): Promise<string> => {
       .single();
     if (!data) return id;
   }
-  // Fallback - extremely unlikely collision
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
@@ -30,9 +29,7 @@ const Onboarding = () => {
 
     try {
       const userId = await generateUniqueId();
-      const user = { id visitorId, name: name.trim(), role: "learner" as const };
 
-      // Save to database
       await supabase.from("app_users").insert({
         user_id: userId,
         name: name.trim(),
