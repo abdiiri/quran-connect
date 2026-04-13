@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUser } from "@/contexts/UserContext";
+import { useCall } from "@/contexts/CallContext";
 import { ArrowLeft, Phone, Video } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 const CallPage = () => {
   const navigate = useNavigate();
   const { user } = useUser();
+  const { startCall } = useCall();
   const [targetId, setTargetId] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const startCall = (type: "audio" | "video") => {
+  const handleStartCall = async (type: "audio" | "video") => {
     if (!targetId.trim() || targetId.length !== 6) {
       toast.error("Please enter a valid 6-digit User ID");
       return;
@@ -18,7 +22,24 @@ const CallPage = () => {
       toast.error("You cannot call yourself");
       return;
     }
-    navigate(`/call-screen?target=${targetId}&type=${type}`);
+
+    setLoading(true);
+    // Check if target user exists
+    const { data } = await supabase
+      .from("app_users")
+      .select("user_id, name")
+      .eq("user_id", targetId)
+      .single();
+
+    if (!data) {
+      toast.error("User not found. Check the ID and try again.");
+      setLoading(false);
+      return;
+    }
+
+    await startCall(targetId, type);
+    setLoading(false);
+    navigate("/call-screen");
   };
 
   return (
@@ -47,14 +68,16 @@ const CallPage = () => {
 
           <div className="grid grid-cols-2 gap-3 mt-6">
             <button
-              onClick={() => startCall("audio")}
-              className="flex items-center justify-center gap-2 py-3 rounded-xl gradient-primary text-primary-foreground font-medium hover:opacity-90 transition-all"
+              onClick={() => handleStartCall("audio")}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 py-3 rounded-xl gradient-primary text-primary-foreground font-medium hover:opacity-90 transition-all disabled:opacity-50"
             >
               <Phone className="w-5 h-5" /> Audio Call
             </button>
             <button
-              onClick={() => startCall("video")}
-              className="flex items-center justify-center gap-2 py-3 rounded-xl gradient-gold text-primary-foreground font-medium hover:opacity-90 transition-all"
+              onClick={() => handleStartCall("video")}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 py-3 rounded-xl gradient-gold text-primary-foreground font-medium hover:opacity-90 transition-all disabled:opacity-50"
             >
               <Video className="w-5 h-5" /> Video Call
             </button>
