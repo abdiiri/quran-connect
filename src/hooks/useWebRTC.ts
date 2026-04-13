@@ -222,17 +222,16 @@ export const useWebRTC = () => {
     [incomingCall, user, cleanup]
   );
 
-  const rejectCall = useCallback(() => {
+  const rejectCall = useCallback(async () => {
     if (!incomingCall || !user) return;
     const ch = getSignalingChannel(incomingCall.callerId);
-    ch.subscribe().then(() => {
-      ch.send({
-        type: "broadcast",
-        event: "reject",
-        payload: { from: user.id },
-      });
-      setTimeout(() => supabase.removeChannel(ch), 1000);
+    await ch.subscribe();
+    ch.send({
+      type: "broadcast",
+      event: "reject",
+      payload: { from: user.id },
     });
+    setTimeout(() => supabase.removeChannel(ch), 1000);
     pendingOfferRef.current = null;
     setIncomingCall(null);
   }, [incomingCall, user]);
