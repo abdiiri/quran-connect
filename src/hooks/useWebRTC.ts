@@ -301,11 +301,10 @@ export const useWebRTC = () => {
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      // Listen for answer
+      // Listen for answer on shared channel
       ch.on("broadcast", { event: "answer" }, async ({ payload }) => {
         if (payload.from === targetId) {
-          console.log("Received answer from", targetId);
-          // Update status immediately - the other user has accepted
+          console.log("Received answer from shared channel");
           setCallState((s) => ({ ...s, status: "connected", remoteName: payload.remoteName || s.remoteName }));
           if (callingTimeoutRef.current) {
             clearTimeout(callingTimeoutRef.current);
@@ -325,42 +324,56 @@ export const useWebRTC = () => {
         }
       });
 
-      // Listen for reject
       ch.on("broadcast", { event: "reject" }, ({ payload }) => {
         if (payload.from === targetId) cleanup();
       });
 
-      // Listen for hangup
       ch.on("broadcast", { event: "hangup" }, ({ payload }) => {
         if (payload.from === targetId) cleanup();
       });
 
-      // Listen for camera toggle
       ch.on("broadcast", { event: "camera-toggle" }, ({ payload }) => {
         if (payload.from === targetId) {
           setCallState((s) => ({ ...s, remoteCameraOff: payload.isCameraOff }));
         }
       });
 
-      // Listen for quiz letters
       ch.on("broadcast", { event: "quiz-letter" }, ({ payload }) => {
         if (payload.from === targetId) {
           setQuizLetter(payload.letter);
         }
       });
 
-      // Subscribe, then create and send offer
+      // Also listen for answer on personal channel (backup signaling path)
+      const personalAnswerCh = supabase.channel(`user-${user.id}-answer`);
+      personalAnswerCh.on("broadcast", { event: "call-answer" }, async ({ payload }) => {
+        if (payload.from === targetId) {
+          console.log("Received answer from personal channel (backup)");
+          if (pc.signalingState === "have-local-offer") {
+            setCallState((s) => ({ ...s, status: "connected", remoteName: payload.remoteName || s.remoteName }));
+            if (callingTimeoutRef.current) {
+              clearTimeout(callingTimeoutRef.current);
+              callingTimeoutRef.current = null;
+            }
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
+            remoteDescSet.current = true;
+            await flushIceCandidates(pc);
+            startStatsPolling(pc);
+          }
+        }
+      });
+      await personalAnswerCh.subscribe();
+
       await ch.subscribe((status) => {
         console.log("Caller channel status:", status);
       });
 
-      // Small delay to ensure channel is ready
       await new Promise((r) => setTimeout(r, 500));
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Send to the shared call channel
+      // Send offer on shared channel
       ch.send({
         type: "broadcast",
         event: "offer",
@@ -372,7 +385,7 @@ export const useWebRTC = () => {
         },
       });
 
-      // Also notify target's personal channel
+      // Notify target's personal channel
       const targetCh = supabase.channel(`user-${targetId}`);
       await targetCh.subscribe();
       await new Promise((r) => setTimeout(r, 300));
@@ -388,12 +401,11 @@ export const useWebRTC = () => {
       });
       setTimeout(() => supabase.removeChannel(targetCh), 3000);
 
-      // Auto-cancel after 30 seconds if not connected
+      // Auto-cancel after 30 seconds
       callingTimeoutRef.current = setTimeout(() => {
         console.log("Call auto-cancelled after 30s timeout");
         setCallState((prev) => {
           if (prev.status === "calling") {
-            // Notify target about cancellation
             const cancelCh = supabase.channel(`user-${targetId}-cancel`);
             cancelCh.subscribe((s) => {
               if (s === "SUBSCRIBED") {
@@ -405,6 +417,7 @@ export const useWebRTC = () => {
                 setTimeout(() => supabase.removeChannel(cancelCh), 1000);
               }
             });
+            supabase.removeChannel(personalAnswerCh);
             cleanup();
           }
           return prev;
