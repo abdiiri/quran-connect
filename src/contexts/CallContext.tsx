@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode } from "react";
-import { useWebRTC, CallStatus, CallType } from "@/hooks/useWebRTC";
+import { useWebRTC, CallStatus, CallType, QuizLetter } from "@/hooks/useWebRTC";
 
 interface CallContextType {
   callState: {
@@ -13,12 +13,14 @@ interface CallContextType {
     remoteStream: MediaStream | null;
   };
   incomingCall: { callerId: string; callerName: string; callType: CallType } | null;
+  quizLetter: QuizLetter | null;
   startCall: (targetId: string, type: CallType) => Promise<void>;
   acceptCall: () => Promise<void>;
   rejectCall: () => void;
   endCall: () => void;
   toggleMute: () => void;
   toggleCamera: () => void;
+  sendQuizLetter: (letter: QuizLetter) => void;
 }
 
 const CallContext = createContext<CallContextType | undefined>(undefined);
