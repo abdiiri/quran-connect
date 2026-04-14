@@ -354,6 +354,13 @@ export const useWebRTC = () => {
         if (payload.from === callerId) cleanup();
       });
 
+      // Listen for camera toggle
+      ch.on("broadcast", { event: "camera-toggle" }, ({ payload }) => {
+        if (payload.from === callerId) {
+          setCallState((s) => ({ ...s, remoteCameraOff: payload.isCameraOff }));
+        }
+      });
+
       // Listen for quiz letters
       ch.on("broadcast", { event: "quiz-letter" }, ({ payload }) => {
         if (payload.from === callerId) {
