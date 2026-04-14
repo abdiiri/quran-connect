@@ -39,32 +39,32 @@ const CallScreen = () => {
 
   return (
     <div className="min-h-screen bg-foreground flex flex-col relative">
-      {/* Main call area */}
-      <div className="flex-1 flex flex-col items-center justify-between relative">
-        {/* Remote video (full area) */}
-        {callType === "video" && remoteStream && (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-        )}
+      {/* Remote video (full area) */}
+      {callType === "video" && remoteStream && (
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      )}
 
-        {/* Local video (small overlay) */}
-        {callType === "video" && localStream && !isCameraOff && (
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className="absolute top-6 right-6 w-32 h-44 object-cover rounded-2xl border-2 border-primary-foreground/30 z-10"
-          />
-        )}
+      {/* Local video (small overlay) */}
+      {callType === "video" && localStream && !isCameraOff && (
+        <video
+          ref={localVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="absolute top-6 right-6 w-28 h-40 object-cover rounded-2xl border-2 border-primary-foreground/30 z-10"
+        />
+      )}
 
+      {/* Content overlay */}
+      <div className="flex-1 flex flex-col items-center justify-between relative z-10">
         {/* Top info */}
-        <div className="relative z-10 text-center pt-16 animate-fade-in">
-          <div className="w-20 h-20 rounded-full gradient-primary mx-auto flex items-center justify-center mb-4">
+        <div className="text-center pt-14 animate-fade-in">
+          <div className="w-20 h-20 rounded-full gradient-primary mx-auto flex items-center justify-center mb-3">
             <span className="text-primary-foreground text-2xl font-bold">
               {displayName.slice(0, 2).toUpperCase()}
             </span>
@@ -83,23 +83,24 @@ const CallScreen = () => {
           </p>
         </div>
 
-        {/* Audio-only pulse */}
-        {(callType === "audio" || (callType === "video" && !remoteStream)) && status === "connected" && (
-          <div className="flex-1 flex items-center justify-center relative z-10">
-            <div className="relative">
-              <div className="w-24 h-24 rounded-full gradient-primary flex items-center justify-center">
-                <Mic className="w-8 h-8 text-primary-foreground" />
+        {/* Middle section: audio pulse OR quiz */}
+        <div className="flex-1 flex flex-col items-center justify-center">
+          {/* Audio pulse for audio calls */}
+          {callType === "audio" && status === "connected" && (
+            <div className="relative mb-4">
+              <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center">
+                <Mic className="w-7 h-7 text-primary-foreground" />
               </div>
               <div className="absolute inset-0 rounded-full gradient-primary animate-pulse-ring" />
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Spacer for video calls */}
-        {callType === "video" && remoteStream && <div className="flex-1" />}
+          {/* Quiz section - inline between avatar and controls */}
+          {status === "connected" && <InCallQuiz />}
+        </div>
 
         {/* Controls */}
-        <div className="relative z-10 flex items-center gap-6 pb-6 animate-fade-in">
+        <div className="flex items-center gap-6 pb-8 animate-fade-in">
           <button
             onClick={toggleMute}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? "bg-destructive" : "bg-primary-foreground/20"}`}
@@ -124,9 +125,6 @@ const CallScreen = () => {
           </button>
         </div>
       </div>
-
-      {/* Quiz section below the call */}
-      {status === "connected" && <InCallQuiz />}
     </div>
   );
 };
