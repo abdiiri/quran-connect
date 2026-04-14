@@ -87,14 +87,14 @@ const CallScreen = () => {
         </div>
       )}
 
-      {/* Local video (small overlay) */}
-      {callType === "video" && localStream && !isCameraOff && (
+      {/* Local video (small overlay) - always mounted to preserve srcObject */}
+      {callType === "video" && localStream && (
         <video
           ref={localVideoRef}
           autoPlay
           playsInline
           muted
-          className="absolute top-6 right-6 w-28 h-40 object-cover rounded-2xl border-2 border-primary-foreground/30 z-10"
+          className={`absolute top-6 right-6 w-28 h-40 object-cover rounded-2xl border-2 border-primary-foreground/30 z-10 ${isCameraOff ? "hidden" : ""}`}
         />
       )}
 
