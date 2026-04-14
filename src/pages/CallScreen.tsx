@@ -67,13 +67,24 @@ const CallScreen = () => {
   return (
     <div className="min-h-screen bg-foreground flex flex-col relative">
       {/* Remote video (full area) */}
-      {callType === "video" && remoteStream && (
+      {callType === "video" && remoteStream && !remoteCameraOff && (
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
           className="absolute inset-0 w-full h-full object-cover"
         />
+      )}
+
+      {/* Remote camera off - show avatar */}
+      {callType === "video" && remoteCameraOff && (
+        <div className="absolute inset-0 flex items-center justify-center bg-foreground">
+          <div className="w-32 h-32 rounded-full gradient-primary flex items-center justify-center">
+            <span className="text-primary-foreground text-4xl font-bold">
+              {displayName.slice(0, 2).toUpperCase()}
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Local video (small overlay) */}
