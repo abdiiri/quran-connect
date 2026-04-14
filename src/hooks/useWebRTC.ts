@@ -8,6 +8,7 @@ interface RemoteCameraState {
 
 export type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
 export type CallType = "audio" | "video";
+export type ConnectionQuality = "excellent" | "good" | "fair" | "poor" | "unknown";
 
 interface CallState {
   status: CallStatus;
@@ -59,6 +60,7 @@ export const useWebRTC = () => {
   const remoteDescSet = useRef(false);
 
   const callingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [callState, setCallState] = useState<CallState>({
     status: "idle",
@@ -74,11 +76,16 @@ export const useWebRTC = () => {
 
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [quizLetter, setQuizLetter] = useState<QuizLetter | null>(null);
+  const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>("unknown");
 
   const cleanup = useCallback(() => {
     if (callingTimeoutRef.current) {
       clearTimeout(callingTimeoutRef.current);
       callingTimeoutRef.current = null;
+    }
+    if (statsIntervalRef.current) {
+      clearInterval(statsIntervalRef.current);
+      statsIntervalRef.current = null;
     }
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
@@ -91,6 +98,7 @@ export const useWebRTC = () => {
     remoteDescSet.current = false;
     iceCandidateQueue.current = [];
     setQuizLetter(null);
+    setConnectionQuality("unknown");
     setCallState({
       status: "idle",
       callType: "audio",
@@ -135,6 +143,37 @@ export const useWebRTC = () => {
     } else {
       iceCandidateQueue.current.push(candidate);
     }
+  };
+
+  const startStatsPolling = (pc: RTCPeerConnection) => {
+    if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
+    statsIntervalRef.current = setInterval(async () => {
+      if (pc.connectionState !== "connected") return;
+      try {
+        const stats = await pc.getStats();
+        let rtt = -1;
+        let packetsLost = 0;
+        let packetsReceived = 0;
+        stats.forEach((report) => {
+          if (report.type === "candidate-pair" && report.state === "succeeded") {
+            rtt = report.currentRoundTripTime ?? -1;
+          }
+          if (report.type === "inbound-rtp" && report.kind === "audio") {
+            packetsLost = report.packetsLost ?? 0;
+            packetsReceived = report.packetsReceived ?? 0;
+          }
+        });
+        const lossRate = packetsReceived > 0 ? packetsLost / (packetsLost + packetsReceived) : 0;
+        let quality: ConnectionQuality = "unknown";
+        if (rtt >= 0) {
+          if (rtt < 0.1 && lossRate < 0.01) quality = "excellent";
+          else if (rtt < 0.2 && lossRate < 0.03) quality = "good";
+          else if (rtt < 0.4 && lossRate < 0.08) quality = "fair";
+          else quality = "poor";
+        }
+        setConnectionQuality(quality);
+      } catch { /* ignore */ }
+    }, 2000);
   };
 
   const createPeerConnection = (signalingChannel: ReturnType<typeof supabase.channel>) => {
@@ -208,9 +247,16 @@ export const useWebRTC = () => {
       ch.on("broadcast", { event: "answer" }, async ({ payload }) => {
         if (payload.from === targetId) {
           console.log("Received answer from", targetId);
+          // Update status immediately - the other user has accepted
+          setCallState((s) => ({ ...s, status: "connected", remoteName: payload.remoteName || s.remoteName }));
+          if (callingTimeoutRef.current) {
+            clearTimeout(callingTimeoutRef.current);
+            callingTimeoutRef.current = null;
+          }
           await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
           remoteDescSet.current = true;
           await flushIceCandidates(pc);
+          startStatsPolling(pc);
         }
       });
 
@@ -381,9 +427,10 @@ export const useWebRTC = () => {
       ch.send({
         type: "broadcast",
         event: "answer",
-        payload: { answer, from: user.id },
+        payload: { answer, from: user.id, remoteName: user.name },
       });
 
+      startStatsPolling(pc);
       pendingOfferRef.current = null;
     },
     [incomingCall, user, cleanup]
@@ -511,6 +558,7 @@ export const useWebRTC = () => {
     callState,
     incomingCall,
     quizLetter,
+    connectionQuality,
     startCall,
     acceptCall,
     rejectCall,
