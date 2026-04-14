@@ -37,6 +37,9 @@ export interface QuizLetter {
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
   { urls: "stun:freeturn.net:5349" },
   {
     urls: "turn:freeturn.net:3478",
@@ -47,6 +50,11 @@ const ICE_SERVERS = [
     urls: "turns:freeturn.net:5349",
     username: "free",
     credential: "free",
+  },
+  {
+    urls: "turn:relay1.expressturn.com:3478",
+    username: "efKXIVMC0SQOXBQXBH",
+    credential: "FcpoaKGOVEoW6gk0",
   },
 ];
 
@@ -177,7 +185,10 @@ export const useWebRTC = () => {
   };
 
   const createPeerConnection = (signalingChannel: ReturnType<typeof supabase.channel>) => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({
+      iceServers: ICE_SERVERS,
+      iceCandidatePoolSize: 10,
+    });
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
@@ -202,7 +213,17 @@ export const useWebRTC = () => {
         }
         setCallState((s) => ({ ...s, status: "connected" }));
       }
-      if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
+      if (pc.connectionState === "failed") {
+        // Try ICE restart before giving up
+        console.log("Connection failed, attempting ICE restart...");
+        try {
+          pc.restartIce();
+        } catch (e) {
+          console.warn("ICE restart failed, cleaning up", e);
+          cleanup();
+        }
+      }
+      if (["closed"].includes(pc.connectionState)) {
         cleanup();
       }
     };
@@ -211,6 +232,28 @@ export const useWebRTC = () => {
       console.log("ICE connection state:", pc.iceConnectionState);
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         setCallState((s) => ({ ...s, status: "connected" }));
+      }
+      if (pc.iceConnectionState === "failed") {
+        console.log("ICE connection failed, attempting restart...");
+        try {
+          pc.restartIce();
+        } catch (e) {
+          console.warn("ICE restart failed", e);
+          cleanup();
+        }
+      }
+      if (pc.iceConnectionState === "disconnected") {
+        // Wait a bit before cleaning up - it might reconnect
+        setTimeout(() => {
+          if (pc.iceConnectionState === "disconnected") {
+            console.log("ICE still disconnected after timeout, attempting restart...");
+            try {
+              pc.restartIce();
+            } catch {
+              cleanup();
+            }
+          }
+        }, 5000);
       }
     };
 
