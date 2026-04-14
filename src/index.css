@@ -80,3 +80,11 @@
     @apply bg-card/80 backdrop-blur-sm border border-border shadow-sm;
   }
 }
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
