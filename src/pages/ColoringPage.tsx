@@ -53,14 +53,11 @@ const ColoringPage = () => {
   const goTo = (idx: number) => {
     const next = Math.max(0, Math.min(arabicAlphabet.length - 1, idx));
     setCurrentIndex(next);
+    setLetterProgress(0);
     setResetKey(k => k + 1);
   };
 
   const handleContinue = () => setShowCongrats(false);
-  const handleNext = () => {
-    setShowCongrats(false);
-    if (currentIndex < arabicAlphabet.length - 1) goTo(currentIndex + 1);
-  };
 
   return (
     <div className="min-h-screen bg-background">
