@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCall } from "@/contexts/CallContext";
 import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
@@ -9,6 +9,8 @@ const CallScreen = () => {
   const { callState, endCall, toggleMute, toggleCamera } = useCall();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const [callDuration, setCallDuration] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, localStream, remoteStream } = callState;
 
