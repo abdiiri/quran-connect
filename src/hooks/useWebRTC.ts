@@ -57,6 +57,8 @@ export const useWebRTC = () => {
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
   const remoteDescSet = useRef(false);
 
+  const callingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [callState, setCallState] = useState<CallState>({
     status: "idle",
     callType: "audio",
@@ -72,6 +74,10 @@ export const useWebRTC = () => {
   const [quizLetter, setQuizLetter] = useState<QuizLetter | null>(null);
 
   const cleanup = useCallback(() => {
+    if (callingTimeoutRef.current) {
+      clearTimeout(callingTimeoutRef.current);
+      callingTimeoutRef.current = null;
+    }
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     pcRef.current?.close();
@@ -148,6 +154,10 @@ export const useWebRTC = () => {
     pc.onconnectionstatechange = () => {
       console.log("Connection state:", pc.connectionState);
       if (pc.connectionState === "connected") {
+        if (callingTimeoutRef.current) {
+          clearTimeout(callingTimeoutRef.current);
+          callingTimeoutRef.current = null;
+        }
         setCallState((s) => ({ ...s, status: "connected" }));
       }
       if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
@@ -263,6 +273,29 @@ export const useWebRTC = () => {
         },
       });
       setTimeout(() => supabase.removeChannel(targetCh), 3000);
+
+      // Auto-cancel after 30 seconds if not connected
+      callingTimeoutRef.current = setTimeout(() => {
+        console.log("Call auto-cancelled after 30s timeout");
+        setCallState((prev) => {
+          if (prev.status === "calling") {
+            // Notify target about cancellation
+            const cancelCh = supabase.channel(`user-${targetId}-cancel`);
+            cancelCh.subscribe((s) => {
+              if (s === "SUBSCRIBED") {
+                cancelCh.send({
+                  type: "broadcast",
+                  event: "call-cancelled",
+                  payload: { from: user!.id },
+                });
+                setTimeout(() => supabase.removeChannel(cancelCh), 1000);
+              }
+            });
+            cleanup();
+          }
+          return prev;
+        });
+      }, 30000);
     },
     [user, cleanup]
   );

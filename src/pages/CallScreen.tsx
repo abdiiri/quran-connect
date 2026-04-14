@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCall } from "@/contexts/CallContext";
 import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
@@ -9,8 +9,35 @@ const CallScreen = () => {
   const { callState, endCall, toggleMute, toggleCamera } = useCall();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const [callDuration, setCallDuration] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, localStream, remoteStream } = callState;
+
+  // Call duration timer
+  useEffect(() => {
+    if (status === "connected") {
+      setCallDuration(0);
+      timerRef.current = setInterval(() => {
+        setCallDuration((d) => d + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setCallDuration(0);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [status]);
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+    const s = (seconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
 
   useEffect(() => {
     if (status === "idle") {
@@ -76,7 +103,7 @@ const CallScreen = () => {
                 Calling<span className="animate-pulse">...</span>
               </span>
             ) : status === "connected" ? (
-              `${callType === "video" ? "Video" : "Audio"} call connected`
+              formatDuration(callDuration)
             ) : (
               status
             )}
