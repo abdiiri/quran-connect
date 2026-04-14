@@ -41,6 +41,33 @@ export type Database = {
         }
         Relationships: []
       }
+      letter_recordings: {
+        Row: {
+          audio_url: string
+          created_at: string
+          id: string
+          letter: string
+          letter_name: string
+          recorded_by: string
+        }
+        Insert: {
+          audio_url: string
+          created_at?: string
+          id?: string
+          letter: string
+          letter_name: string
+          recorded_by: string
+        }
+        Update: {
+          audio_url?: string
+          created_at?: string
+          id?: string
+          letter?: string
+          letter_name?: string
+          recorded_by?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
