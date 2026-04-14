@@ -8,6 +8,7 @@ interface RemoteCameraState {
 
 export type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
 export type CallType = "audio" | "video";
+export type ConnectionQuality = "excellent" | "good" | "fair" | "poor" | "unknown";
 
 interface CallState {
   status: CallStatus;
