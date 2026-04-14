@@ -103,7 +103,7 @@ const CallScreen = () => {
                 Calling<span className="animate-pulse">...</span>
               </span>
             ) : status === "connected" ? (
-              `${callType === "video" ? "Video" : "Audio"} call connected`
+              formatDuration(callDuration)
             ) : (
               status
             )}
