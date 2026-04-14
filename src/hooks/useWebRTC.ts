@@ -185,9 +185,9 @@ export const useWebRTC = () => {
     }, 2000);
   };
 
-  const createPeerConnection = (signalingChannel: ReturnType<typeof supabase.channel>) => {
+  const createPeerConnection = (signalingChannel: ReturnType<typeof supabase.channel>, iceServers: RTCIceServer[]) => {
     const pc = new RTCPeerConnection({
-      iceServers: ICE_SERVERS,
+      iceServers,
       iceCandidatePoolSize: 10,
     });
 
