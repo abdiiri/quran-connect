@@ -73,7 +73,7 @@ const AdminRecording = () => {
     setUploading(true);
 
     try {
-      const fileName = `${selectedLetter.letter}-${Date.now()}.webm`;
+      const fileName = `letter-${selectedLetter.id}-${Date.now()}.webm`;
 
       const { error: uploadError } = await supabase.storage
         .from("letter-audio")
