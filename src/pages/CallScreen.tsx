@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCall } from "@/contexts/CallContext";
-import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Signal, SignalLow, SignalMedium, SignalZero } from "lucide-react";
 import InCallQuiz from "@/components/InCallQuiz";
+import { ConnectionQuality } from "@/hooks/useWebRTC";
+
+const qualityConfig: Record<ConnectionQuality, { icon: typeof Signal; color: string; label: string }> = {
+  excellent: { icon: Signal, color: "text-green-400", label: "Excellent" },
+  good: { icon: Signal, color: "text-green-300", label: "Good" },
+  fair: { icon: SignalMedium, color: "text-yellow-400", label: "Fair" },
+  poor: { icon: SignalLow, color: "text-red-400", label: "Poor" },
+  unknown: { icon: SignalZero, color: "text-primary-foreground/40", label: "Connecting" },
+};
 
 const CallScreen = () => {
   const navigate = useNavigate();
-  const { callState, endCall, toggleMute, toggleCamera } = useCall();
+  const { callState, endCall, toggleMute, toggleCamera, connectionQuality } = useCall();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [callDuration, setCallDuration] = useState(0);
