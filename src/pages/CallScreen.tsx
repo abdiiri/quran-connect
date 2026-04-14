@@ -12,7 +12,7 @@ const CallScreen = () => {
   const [callDuration, setCallDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, localStream, remoteStream } = callState;
+  const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, remoteCameraOff, localStream, remoteStream } = callState;
 
   // Call duration timer
   useEffect(() => {
