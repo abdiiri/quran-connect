@@ -325,20 +325,18 @@ export const useWebRTC = () => {
     [incomingCall, user, cleanup]
   );
 
-  const rejectCall = useCallback(() => {
+  const rejectCall = useCallback(async () => {
     if (!incomingCall || !user) return;
     const channelName = getChannelName(user.id, incomingCall.callerId);
     const ch = supabase.channel(channelName);
-    ch.subscribe().then(() => {
-      setTimeout(() => {
-        ch.send({
-          type: "broadcast",
-          event: "reject",
-          payload: { from: user.id },
-        });
-        setTimeout(() => supabase.removeChannel(ch), 1000);
-      }, 300);
+    await ch.subscribe();
+    await new Promise((r) => setTimeout(r, 300));
+    ch.send({
+      type: "broadcast",
+      event: "reject",
+      payload: { from: user.id },
     });
+    setTimeout(() => supabase.removeChannel(ch), 1000);
     pendingOfferRef.current = null;
     setIncomingCall(null);
   }, [incomingCall, user]);
