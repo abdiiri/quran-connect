@@ -102,6 +102,7 @@ export const useWebRTC = () => {
       remoteName: "",
       isMuted: false,
       isCameraOff: false,
+      remoteCameraOff: false,
       localStream: null,
       remoteStream: null,
     });
