@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 export interface User {
   id: string;
   name: string;
-  role: "learner" | "teacher";
+  role: "learner" | "teacher" | "admin";
 }
 
 interface UserContextType {
@@ -32,7 +32,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           .single()
           .then(({ data }) => {
             if (data && data.role !== parsed.role) {
-              const updated = { ...parsed, role: data.role as "learner" | "teacher" };
+              const updated = { ...parsed, role: data.role as "learner" | "teacher" | "admin" };
               setUserState(updated);
               localStorage.setItem("quran_user", JSON.stringify(updated));
             }
