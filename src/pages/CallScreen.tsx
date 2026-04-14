@@ -14,6 +14,31 @@ const CallScreen = () => {
 
   const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, localStream, remoteStream } = callState;
 
+  // Call duration timer
+  useEffect(() => {
+    if (status === "connected") {
+      setCallDuration(0);
+      timerRef.current = setInterval(() => {
+        setCallDuration((d) => d + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setCallDuration(0);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [status]);
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+    const s = (seconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
   useEffect(() => {
     if (status === "idle") {
       navigate("/call");
