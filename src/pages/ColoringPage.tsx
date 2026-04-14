@@ -22,23 +22,31 @@ const ColoringPage = () => {
   const [showCongrats, setShowCongrats] = useState(false);
   const [resetKey, setResetKey] = useState(0);
 
+  const [letterProgress, setLetterProgress] = useState(0);
+
   const currentLetter = arabicAlphabet[currentIndex];
-  const progress = (coloredLetters.size / arabicAlphabet.length) * 100;
+
+  const handleLetterProgress = useCallback((percent: number) => {
+    setLetterProgress(percent);
+  }, []);
 
   const handleComplete = useCallback(() => {
     setColoredLetters(prev => {
       if (prev.has(currentIndex)) return prev;
       const next = new Set(prev);
       next.add(currentIndex);
+      if (next.size === arabicAlphabet.length) {
+        setShowCongrats(true);
+      }
       return next;
     });
-    setShowCongrats(true);
   }, [currentIndex]);
 
   const { canvasRef, maskRef, clearCanvas, startDraw, draw, stopDraw } = ColoringCanvas({
     letter: currentLetter,
     penColor, brushSize, isErasing,
     onComplete: handleComplete,
+    onProgress: handleLetterProgress,
     resetKey,
   });
 
@@ -70,10 +78,10 @@ const ColoringPage = () => {
         {/* Progress */}
         <div className="mb-3">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span>{coloredLetters.size} of {arabicAlphabet.length} colored</span>
-            <span>{Math.round(progress)}%</span>
+            <span>Letter progress</span>
+            <span>{Math.round(letterProgress)}%</span>
           </div>
-          <Progress value={progress} className="h-2" />
+          <Progress value={letterProgress} className="h-2" />
           {/* Dot indicators */}
           <div className="flex flex-wrap gap-1 mt-2 justify-center">
             {arabicAlphabet.map((l, idx) => (
@@ -176,9 +184,9 @@ const ColoringPage = () => {
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
               <PartyPopper className="w-8 h-8 text-primary" />
             </div>
-            <DialogTitle className="text-xl">🎉 Great Job!</DialogTitle>
+            <DialogTitle className="text-xl">🎉 Congratulations!</DialogTitle>
             <DialogDescription>
-              You colored the letter <span className="font-arabic text-lg text-primary font-bold">{currentLetter.letter}</span> ({currentLetter.name}) beautifully!
+              You've colored all {arabicAlphabet.length} Arabic letters! Amazing work! 🌟
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2 mt-2">
@@ -186,11 +194,10 @@ const ColoringPage = () => {
               Continue Coloring
             </button>
             <button
-              onClick={handleNext}
-              disabled={currentIndex >= arabicAlphabet.length - 1}
-              className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
+              onClick={() => { setShowCongrats(false); navigate("/home"); }}
+              className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
             >
-              Next Letter →
+              Back to Home
             </button>
           </div>
         </DialogContent>
