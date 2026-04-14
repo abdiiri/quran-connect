@@ -273,6 +273,29 @@ export const useWebRTC = () => {
         },
       });
       setTimeout(() => supabase.removeChannel(targetCh), 3000);
+
+      // Auto-cancel after 30 seconds if not connected
+      callingTimeoutRef.current = setTimeout(() => {
+        console.log("Call auto-cancelled after 30s timeout");
+        setCallState((prev) => {
+          if (prev.status === "calling") {
+            // Notify target about cancellation
+            const cancelCh = supabase.channel(`user-${targetId}-cancel`);
+            cancelCh.subscribe((s) => {
+              if (s === "SUBSCRIBED") {
+                cancelCh.send({
+                  type: "broadcast",
+                  event: "call-cancelled",
+                  payload: { from: user!.id },
+                });
+                setTimeout(() => supabase.removeChannel(cancelCh), 1000);
+              }
+            });
+            cleanup();
+          }
+          return prev;
+        });
+      }, 30000);
     },
     [user, cleanup]
   );
