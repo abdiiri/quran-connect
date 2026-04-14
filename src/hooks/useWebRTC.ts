@@ -444,11 +444,20 @@ export const useWebRTC = () => {
   }, []);
 
   const toggleCamera = useCallback(() => {
+    const newCameraOff = !callState.isCameraOff;
     localStreamRef.current?.getVideoTracks().forEach((t) => {
-      t.enabled = !t.enabled;
+      t.enabled = !newCameraOff;
     });
-    setCallState((s) => ({ ...s, isCameraOff: !s.isCameraOff }));
-  }, []);
+    setCallState((s) => ({ ...s, isCameraOff: newCameraOff }));
+    // Broadcast camera state to remote user
+    if (channelRef.current && user) {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "camera-toggle",
+        payload: { isCameraOff: newCameraOff, from: user.id },
+      });
+    }
+  }, [callState.isCameraOff, user]);
 
   const sendQuizLetter = useCallback((letter: QuizLetter) => {
     if (channelRef.current && user) {
