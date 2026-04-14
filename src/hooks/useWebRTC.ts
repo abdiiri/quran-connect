@@ -60,6 +60,7 @@ export const useWebRTC = () => {
   const remoteDescSet = useRef(false);
 
   const callingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [callState, setCallState] = useState<CallState>({
     status: "idle",
@@ -75,11 +76,16 @@ export const useWebRTC = () => {
 
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [quizLetter, setQuizLetter] = useState<QuizLetter | null>(null);
+  const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>("unknown");
 
   const cleanup = useCallback(() => {
     if (callingTimeoutRef.current) {
       clearTimeout(callingTimeoutRef.current);
       callingTimeoutRef.current = null;
+    }
+    if (statsIntervalRef.current) {
+      clearInterval(statsIntervalRef.current);
+      statsIntervalRef.current = null;
     }
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
@@ -92,6 +98,7 @@ export const useWebRTC = () => {
     remoteDescSet.current = false;
     iceCandidateQueue.current = [];
     setQuizLetter(null);
+    setConnectionQuality("unknown");
     setCallState({
       status: "idle",
       callType: "audio",
@@ -209,9 +216,16 @@ export const useWebRTC = () => {
       ch.on("broadcast", { event: "answer" }, async ({ payload }) => {
         if (payload.from === targetId) {
           console.log("Received answer from", targetId);
+          // Update status immediately - the other user has accepted
+          setCallState((s) => ({ ...s, status: "connected", remoteName: payload.remoteName || s.remoteName }));
+          if (callingTimeoutRef.current) {
+            clearTimeout(callingTimeoutRef.current);
+            callingTimeoutRef.current = null;
+          }
           await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
           remoteDescSet.current = true;
           await flushIceCandidates(pc);
+          startStatsPolling(pc);
         }
       });
 
