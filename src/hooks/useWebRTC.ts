@@ -496,11 +496,43 @@ export const useWebRTC = () => {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
+      const answerPayload = { answer, from: user.id, remoteName: user.name };
+
+      // Send answer on shared channel
       ch.send({
         type: "broadcast",
         event: "answer",
-        payload: { answer, from: user.id, remoteName: user.name },
+        payload: answerPayload,
       });
+
+      // Also send answer on caller's personal channel as backup
+      const callerAnswerCh = supabase.channel(`user-${callerId}-answer`);
+      await callerAnswerCh.subscribe();
+      await new Promise((r) => setTimeout(r, 300));
+      callerAnswerCh.send({
+        type: "broadcast",
+        event: "call-answer",
+        payload: answerPayload,
+      });
+
+      // Retry sending answer a few times to handle race conditions
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (pc.connectionState === "connected" || pc.iceConnectionState === "connected") break;
+        console.log(`Retrying answer send (attempt ${i + 2})...`);
+        ch.send({
+          type: "broadcast",
+          event: "answer",
+          payload: answerPayload,
+        });
+        callerAnswerCh.send({
+          type: "broadcast",
+          event: "call-answer",
+          payload: answerPayload,
+        });
+      }
+
+      setTimeout(() => supabase.removeChannel(callerAnswerCh), 10000);
 
       startStatsPolling(pc);
       pendingOfferRef.current = null;
