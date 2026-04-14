@@ -1,223 +1,57 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { arabicAlphabet } from "@/data/arabicAlphabet";
-import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Eraser, Trash2, PartyPopper } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import ColoringCanvas from "@/components/coloring/ColoringCanvas";
 
 const PEN_COLORS = [
   "#EF4444", "#F97316", "#EAB308", "#22C55E", "#3B82F6",
   "#8B5CF6", "#EC4899", "#06B6D4", "#000000", "#8B4513",
 ];
-
 const BRUSH_SIZES = [8, 16, 24];
 
 const ColoringPage = () => {
   const navigate = useNavigate();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const maskRef = useRef<HTMLCanvasElement>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [penColor, setPenColor] = useState(PEN_COLORS[0]);
   const [brushSize, setBrushSize] = useState(BRUSH_SIZES[1]);
   const [isErasing, setIsErasing] = useState(false);
-  const isDrawing = useRef(false);
-  const lastPos = useRef<{ x: number; y: number } | null>(null);
+  const [coloredLetters, setColoredLetters] = useState<Set<number>>(new Set());
+  const [showCongrats, setShowCongrats] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
 
   const currentLetter = arabicAlphabet[currentIndex];
+  const progress = (coloredLetters.size / arabicAlphabet.length) * 100;
 
-  // Create the letter mask (hollow letter outline)
-  const createLetterMask = useCallback(() => {
-    const mask = maskRef.current;
-    if (!mask) return;
-    const ctx = mask.getContext("2d");
-    if (!ctx) return;
-
-    const w = mask.width;
-    const h = mask.height;
-    ctx.clearRect(0, 0, w, h);
-
-    // Draw letter filled in white (this becomes the "inside" area)
-    ctx.fillStyle = "#000000";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `bold ${Math.min(w, h) * 0.7}px "Amiri", serif`;
-    ctx.fillText(currentLetter.letter, w / 2, h / 2);
-  }, [currentLetter]);
-
-  // Draw the outline overlay on top of user drawing
-  const drawOutline = useCallback(() => {
-    const canvas = canvasRef.current;
-    const mask = maskRef.current;
-    if (!canvas || !mask) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // We need a separate approach: use compositing to clip user strokes to letter shape
-    // The mask canvas holds the letter shape
-  }, []);
-
-  // Initialize canvases
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const container = canvas.parentElement;
-    if (!container) return;
-
-    const size = Math.min(container.clientWidth, 400);
-    canvas.width = size * 2; // retina
-    canvas.height = size * 2;
-    canvas.style.width = `${size}px`;
-    canvas.style.height = `${size}px`;
-
-    const mask = maskRef.current;
-    if (mask) {
-      mask.width = size * 2;
-      mask.height = size * 2;
-    }
-
-    createLetterMask();
-    redraw();
-  }, [currentIndex, createLetterMask]);
-
-  // Store user strokes on a separate buffer
-  const strokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    // Create off-screen buffer for strokes
-    const buf = document.createElement("canvas");
-    buf.width = canvas.width;
-    buf.height = canvas.height;
-    strokeCanvasRef.current = buf;
+  const handleComplete = useCallback(() => {
+    setColoredLetters(prev => {
+      if (prev.has(currentIndex)) return prev;
+      const next = new Set(prev);
+      next.add(currentIndex);
+      return next;
+    });
+    setShowCongrats(true);
   }, [currentIndex]);
 
-  const redraw = useCallback(() => {
-    const canvas = canvasRef.current;
-    const mask = maskRef.current;
-    const strokeCanvas = strokeCanvasRef.current;
-    if (!canvas || !mask || !strokeCanvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const w = canvas.width;
-    const h = canvas.height;
-
-    ctx.clearRect(0, 0, w, h);
-
-    // 1. Draw light fill of letter shape as background hint
-    ctx.save();
-    ctx.globalAlpha = 0.08;
-    ctx.drawImage(mask, 0, 0);
-    ctx.restore();
-
-    // 2. Draw user strokes clipped to letter shape
-    ctx.save();
-    // Use mask as clip: destination-in compositing
-    // First draw strokes to a temp canvas, then composite
-    const temp = document.createElement("canvas");
-    temp.width = w;
-    temp.height = h;
-    const tCtx = temp.getContext("2d");
-    if (tCtx) {
-      // Draw the user strokes
-      tCtx.drawImage(strokeCanvas, 0, 0);
-      // Clip to letter shape using destination-in
-      tCtx.globalCompositeOperation = "destination-in";
-      tCtx.drawImage(mask, 0, 0);
-    }
-    ctx.drawImage(temp, 0, 0);
-    ctx.restore();
-
-    // 3. Draw letter outline on top
-    ctx.save();
-    ctx.strokeStyle = "#374151";
-    ctx.lineWidth = 3;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `bold ${Math.min(w, h) * 0.7}px "Amiri", serif`;
-    ctx.strokeText(currentLetter.letter, w / 2, h / 2);
-    ctx.restore();
-
-    // 4. Draw letter name below
-    ctx.save();
-    ctx.fillStyle = "#6B7280";
-    ctx.textAlign = "center";
-    ctx.font = `${24}px sans-serif`;
-    ctx.fillText(currentLetter.name, w / 2, h - 30);
-    ctx.restore();
-  }, [currentLetter]);
-
-  const getPos = (e: React.TouchEvent | React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-
-    if ("touches" in e) {
-      const touch = e.touches[0] || e.changedTouches[0];
-      return {
-        x: (touch.clientX - rect.left) * scaleX,
-        y: (touch.clientY - rect.top) * scaleY,
-      };
-    }
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
-    };
-  };
-
-  const startDraw = (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    isDrawing.current = true;
-    lastPos.current = getPos(e);
-  };
-
-  const draw = (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    if (!isDrawing.current || !lastPos.current) return;
-    const strokeCanvas = strokeCanvasRef.current;
-    if (!strokeCanvas) return;
-    const ctx = strokeCanvas.getContext("2d");
-    if (!ctx) return;
-
-    const pos = getPos(e);
-
-    if (isErasing) {
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.lineWidth = brushSize * 3;
-    } else {
-      ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = penColor;
-      ctx.lineWidth = brushSize;
-    }
-
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(lastPos.current.x, lastPos.current.y);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-
-    lastPos.current = pos;
-    redraw();
-  };
-
-  const stopDraw = () => {
-    isDrawing.current = false;
-    lastPos.current = null;
-  };
-
-  const clearCanvas = () => {
-    const strokeCanvas = strokeCanvasRef.current;
-    if (!strokeCanvas) return;
-    const ctx = strokeCanvas.getContext("2d");
-    if (ctx) ctx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
-    redraw();
-  };
+  const { canvasRef, maskRef, clearCanvas, startDraw, draw, stopDraw } = ColoringCanvas({
+    letter: currentLetter,
+    penColor, brushSize, isErasing,
+    onComplete: handleComplete,
+    resetKey,
+  });
 
   const goTo = (idx: number) => {
     const next = Math.max(0, Math.min(arabicAlphabet.length - 1, idx));
     setCurrentIndex(next);
+    setResetKey(k => k + 1);
+  };
+
+  const handleContinue = () => setShowCongrats(false);
+  const handleNext = () => {
+    setShowCongrats(false);
+    if (currentIndex < arabicAlphabet.length - 1) goTo(currentIndex + 1);
   };
 
   return (
@@ -233,6 +67,34 @@ const ColoringPage = () => {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-4">
+        {/* Progress */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+            <span>{coloredLetters.size} of {arabicAlphabet.length} colored</span>
+            <span>{Math.round(progress)}%</span>
+          </div>
+          <Progress value={progress} className="h-2" />
+          {/* Dot indicators */}
+          <div className="flex flex-wrap gap-1 mt-2 justify-center">
+            {arabicAlphabet.map((l, idx) => (
+              <button
+                key={idx}
+                onClick={() => goTo(idx)}
+                className={`w-5 h-5 rounded-full text-[8px] font-bold flex items-center justify-center transition-all ${
+                  idx === currentIndex
+                    ? "ring-2 ring-primary bg-primary text-primary-foreground scale-110"
+                    : coloredLetters.has(idx)
+                    ? "bg-green-500 text-primary-foreground"
+                    : "bg-muted text-muted-foreground"
+                }`}
+                title={l.name}
+              >
+                {l.letter}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Canvas */}
         <div className="glass-card rounded-2xl p-3 mb-4 flex items-center justify-center bg-card">
           <canvas
@@ -267,7 +129,6 @@ const ColoringPage = () => {
 
         {/* Tools row */}
         <div className="flex items-center gap-2 mb-4">
-          {/* Brush sizes */}
           {BRUSH_SIZES.map((size) => (
             <button
               key={size}
@@ -279,10 +140,7 @@ const ColoringPage = () => {
               <div className="rounded-full bg-foreground" style={{ width: size / 2 + 4, height: size / 2 + 4 }} />
             </button>
           ))}
-
           <div className="flex-1" />
-
-          {/* Eraser */}
           <button
             onClick={() => setIsErasing(!isErasing)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
@@ -291,8 +149,6 @@ const ColoringPage = () => {
           >
             <Eraser className="w-4 h-4" /> Rubber
           </button>
-
-          {/* Clear */}
           <button
             onClick={clearCanvas}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-all"
@@ -303,23 +159,42 @@ const ColoringPage = () => {
 
         {/* Navigation */}
         <div className="flex items-center justify-between">
-          <button
-            onClick={() => goTo(currentIndex - 1)}
-            disabled={currentIndex === 0}
-            className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity"
-          >
+          <button onClick={() => goTo(currentIndex - 1)} disabled={currentIndex === 0} className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity">
             <ChevronLeft className="w-5 h-5" />
           </button>
           <p className="font-arabic text-3xl text-primary">{currentLetter.letter}</p>
-          <button
-            onClick={() => goTo(currentIndex + 1)}
-            disabled={currentIndex === arabicAlphabet.length - 1}
-            className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity"
-          >
+          <button onClick={() => goTo(currentIndex + 1)} disabled={currentIndex === arabicAlphabet.length - 1} className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity">
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       </div>
+
+      {/* Congratulations Dialog */}
+      <Dialog open={showCongrats} onOpenChange={setShowCongrats}>
+        <DialogContent className="max-w-xs rounded-2xl text-center">
+          <DialogHeader className="items-center">
+            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+              <PartyPopper className="w-8 h-8 text-primary" />
+            </div>
+            <DialogTitle className="text-xl">🎉 Great Job!</DialogTitle>
+            <DialogDescription>
+              You colored the letter <span className="font-arabic text-lg text-primary font-bold">{currentLetter.letter}</span> ({currentLetter.name}) beautifully!
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 mt-2">
+            <button onClick={handleContinue} className="w-full py-2.5 rounded-xl bg-muted text-foreground font-medium hover:bg-muted/80 transition-colors">
+              Continue Coloring
+            </button>
+            <button
+              onClick={handleNext}
+              disabled={currentIndex >= arabicAlphabet.length - 1}
+              className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
+            >
+              Next Letter →
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
