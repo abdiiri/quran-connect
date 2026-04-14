@@ -7,9 +7,18 @@ import PracticeMode from "@/components/PracticeMode";
 
 const Learning = () => {
   const navigate = useNavigate();
-  const [selectedLetter, setSelectedLetter] = useState<ArabicLetter | null>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [tab, setTab] = useState<"alphabet" | "practice">("alphabet");
   const { playLetter: speak } = useLetterAudio();
+  const touchStart = useRef(0);
+
+  const currentLetter = arabicAlphabet[currentIndex];
+
+  const goTo = (idx: number) => {
+    const next = Math.max(0, Math.min(arabicAlphabet.length - 1, idx));
+    setCurrentIndex(next);
+    speak(arabicAlphabet[next].letter);
+  };
 
   return (
     <div className="min-h-screen bg-background">
