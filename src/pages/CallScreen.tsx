@@ -12,7 +12,7 @@ const CallScreen = () => {
   const [callDuration, setCallDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, localStream, remoteStream } = callState;
+  const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, remoteCameraOff, localStream, remoteStream } = callState;
 
   // Call duration timer
   useEffect(() => {
@@ -67,13 +67,24 @@ const CallScreen = () => {
   return (
     <div className="min-h-screen bg-foreground flex flex-col relative">
       {/* Remote video (full area) */}
-      {callType === "video" && remoteStream && (
+      {callType === "video" && remoteStream && !remoteCameraOff && (
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
           className="absolute inset-0 w-full h-full object-cover"
         />
+      )}
+
+      {/* Remote camera off - show avatar */}
+      {callType === "video" && remoteCameraOff && (
+        <div className="absolute inset-0 flex items-center justify-center bg-foreground">
+          <div className="w-32 h-32 rounded-full gradient-primary flex items-center justify-center">
+            <span className="text-primary-foreground text-4xl font-bold">
+              {displayName.slice(0, 2).toUpperCase()}
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Local video (small overlay) */}
@@ -85,6 +96,15 @@ const CallScreen = () => {
           muted
           className="absolute top-6 right-6 w-28 h-40 object-cover rounded-2xl border-2 border-primary-foreground/30 z-10"
         />
+      )}
+
+      {/* Local camera off - show small avatar */}
+      {callType === "video" && isCameraOff && (
+        <div className="absolute top-6 right-6 w-28 h-40 rounded-2xl border-2 border-primary-foreground/30 z-10 bg-muted flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center">
+            <span className="text-primary-foreground text-sm font-bold">You</span>
+          </div>
+        </div>
       )}
 
       {/* Content overlay */}

@@ -9,6 +9,7 @@ interface CallContextType {
     remoteName: string;
     isMuted: boolean;
     isCameraOff: boolean;
+    remoteCameraOff: boolean;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
   };
