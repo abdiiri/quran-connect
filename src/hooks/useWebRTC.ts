@@ -2,6 +2,10 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUser } from "@/contexts/UserContext";
 
+interface RemoteCameraState {
+  isCameraOff: boolean;
+}
+
 export type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
 export type CallType = "audio" | "video";
 
