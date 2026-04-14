@@ -280,10 +280,11 @@ export const useWebRTC = () => {
       }));
 
       const stream = await getMedia(type);
+      const iceServers = await fetchIceServers();
       const channelName = getChannelName(user.id, targetId);
       const ch = supabase.channel(channelName);
       channelRef.current = ch;
-      const pc = createPeerConnection(ch);
+      const pc = createPeerConnection(ch, iceServers);
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
@@ -421,10 +422,11 @@ export const useWebRTC = () => {
       setIncomingCall(null);
 
       const stream = await getMedia(callType);
+      const iceServers = await fetchIceServers();
       const channelName = getChannelName(user.id, callerId);
       const ch = supabase.channel(channelName);
       channelRef.current = ch;
-      const pc = createPeerConnection(ch);
+      const pc = createPeerConnection(ch, iceServers);
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
