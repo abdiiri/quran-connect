@@ -399,6 +399,7 @@ export const useWebRTC = () => {
     if (!user) return;
 
     const listenChannel = supabase.channel(`user-${user.id}`);
+    const cancelChannel = supabase.channel(`user-${user.id}-cancel`);
 
     listenChannel.on("broadcast", { event: "incoming-call" }, ({ payload }) => {
       if (callState.status !== "idle") return;
@@ -411,12 +412,25 @@ export const useWebRTC = () => {
       });
     });
 
+    cancelChannel.on("broadcast", { event: "call-cancelled" }, ({ payload }) => {
+      // If we have an incoming call from this caller, dismiss it
+      setIncomingCall((prev) => {
+        if (prev && prev.callerId === payload.from) {
+          pendingOfferRef.current = null;
+          return null;
+        }
+        return prev;
+      });
+    });
+
     listenChannel.subscribe((status) => {
       console.log("Personal channel status:", status);
     });
+    cancelChannel.subscribe();
 
     return () => {
       supabase.removeChannel(listenChannel);
+      supabase.removeChannel(cancelChannel);
     };
   }, [user, callState.status]);
 
