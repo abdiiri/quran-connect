@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { arabicAlphabet, ArabicLetter } from "@/data/arabicAlphabet";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
-import { ArrowLeft, Volume2, BookOpen, Target, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Volume2, BookOpen, Target, ChevronLeft, ChevronRight, LayoutGrid, Layers } from "lucide-react";
 import PracticeMode from "@/components/PracticeMode";
 
 const Learning = () => {
