@@ -148,6 +148,18 @@ const CallScreen = () => {
               </div>
             );
           })()}
+        </div>
+
+        {/* Middle section: audio pulse OR quiz */}
+        <div className="flex-1 flex flex-col items-center justify-center">
+          {/* Audio pulse for audio calls */}
+          {callType === "audio" && status === "connected" && (
+            <div className="relative mb-4">
+              <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center">
+                <Mic className="w-7 h-7 text-primary-foreground" />
+              </div>
+              <div className="absolute inset-0 rounded-full gradient-primary animate-pulse-ring" />
+            </div>
           )}
 
           {/* Quiz section - inline between avatar and controls */}
