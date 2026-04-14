@@ -2,13 +2,14 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { arabicAlphabet, ArabicLetter } from "@/data/arabicAlphabet";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
-import { ArrowLeft, Volume2, BookOpen, Target, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Volume2, BookOpen, Target, ChevronLeft, ChevronRight, LayoutGrid, Layers } from "lucide-react";
 import PracticeMode from "@/components/PracticeMode";
 
 const Learning = () => {
   const navigate = useNavigate();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [tab, setTab] = useState<"alphabet" | "practice">("alphabet");
+  const [viewMode, setViewMode] = useState<"card" | "grid">("card");
   const { playLetter: speak } = useLetterAudio();
   const touchStart = useRef(0);
 
@@ -51,47 +52,69 @@ const Learning = () => {
         </div>
 
         {tab === "alphabet" ? (
-          <div
-            className="select-none"
-            onTouchStart={(e) => (touchStart.current = e.touches[0].clientX)}
-            onTouchEnd={(e) => {
-              const diff = touchStart.current - e.changedTouches[0].clientX;
-              if (Math.abs(diff) > 50) goTo(currentIndex + (diff > 0 ? 1 : -1));
-            }}
-          >
-            <div className="glass-card rounded-2xl p-6 text-center animate-fade-in">
-              <p className="text-sm text-muted-foreground mb-1">{currentIndex + 1} / {arabicAlphabet.length}</p>
-              <p className="font-arabic text-7xl text-primary mb-2">{currentLetter.letter}</p>
-              <h3 className="text-xl font-semibold text-foreground">{currentLetter.name}</h3>
-              <p className="text-muted-foreground">/{currentLetter.transliteration}/</p>
-              <div className="mt-3 bg-muted rounded-xl p-3">
-                <p className="font-arabic text-2xl text-foreground">{currentLetter.exampleWord}</p>
-                <p className="text-sm text-muted-foreground">{currentLetter.exampleMeaning}</p>
-              </div>
+          <div>
+            <div className="flex justify-end mb-3">
               <button
-                onClick={() => speak(currentLetter.letter)}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-medium"
+                onClick={() => setViewMode(viewMode === "card" ? "grid" : "card")}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-muted-foreground text-sm hover:text-foreground transition-colors"
               >
-                <Volume2 className="w-4 h-4" /> Listen
+                {viewMode === "card" ? <LayoutGrid className="w-4 h-4" /> : <Layers className="w-4 h-4" />}
+                {viewMode === "card" ? "Grid" : "Card"}
               </button>
             </div>
 
-            <div className="flex items-center justify-between mt-4">
-              <button
-                onClick={() => goTo(currentIndex - 1)}
-                disabled={currentIndex === 0}
-                className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity"
+            {viewMode === "card" ? (
+              <div
+                className="select-none"
+                onTouchStart={(e) => (touchStart.current = e.touches[0].clientX)}
+                onTouchEnd={(e) => {
+                  const diff = touchStart.current - e.changedTouches[0].clientX;
+                  if (Math.abs(diff) > 50) goTo(currentIndex + (diff > 0 ? 1 : -1));
+                }}
               >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => goTo(currentIndex + 1)}
-                disabled={currentIndex === arabicAlphabet.length - 1}
-                className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
+                <div className="glass-card rounded-2xl p-6 text-center animate-fade-in">
+                  <p className="text-sm text-muted-foreground mb-1">{currentIndex + 1} / {arabicAlphabet.length}</p>
+                  <p className="font-arabic text-7xl text-primary mb-2">{currentLetter.letter}</p>
+                  <h3 className="text-xl font-semibold text-foreground">{currentLetter.name}</h3>
+                  <p className="text-muted-foreground">/{currentLetter.transliteration}/</p>
+                  <div className="mt-3 bg-muted rounded-xl p-3">
+                    <p className="font-arabic text-2xl text-foreground">{currentLetter.exampleWord}</p>
+                    <p className="text-sm text-muted-foreground">{currentLetter.exampleMeaning}</p>
+                  </div>
+                  <button
+                    onClick={() => speak(currentLetter.letter)}
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-medium"
+                  >
+                    <Volume2 className="w-4 h-4" /> Listen
+                  </button>
+                </div>
+                <div className="flex items-center justify-between mt-4">
+                  <button onClick={() => goTo(currentIndex - 1)} disabled={currentIndex === 0} className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity">
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button onClick={() => goTo(currentIndex + 1)} disabled={currentIndex === arabicAlphabet.length - 1} className="p-3 rounded-xl bg-muted text-foreground disabled:opacity-30 transition-opacity">
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-3">
+                {arabicAlphabet.map((letter, idx) => (
+                  <button
+                    key={letter.id}
+                    onClick={() => {
+                      setCurrentIndex(idx);
+                      setViewMode("card");
+                      speak(letter.letter);
+                    }}
+                    className="glass-card rounded-xl p-3 text-center hover:shadow-md transition-all"
+                  >
+                    <p className="font-arabic text-3xl text-foreground">{letter.letter}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{letter.name}</p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <PracticeMode />
