@@ -98,6 +98,15 @@ const CallScreen = () => {
         />
       )}
 
+      {/* Local camera off - show small avatar */}
+      {callType === "video" && isCameraOff && (
+        <div className="absolute top-6 right-6 w-28 h-40 rounded-2xl border-2 border-primary-foreground/30 z-10 bg-muted flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center">
+            <span className="text-primary-foreground text-sm font-bold">You</span>
+          </div>
+        </div>
+      )}
+
       {/* Content overlay */}
       <div className="flex-1 flex flex-col items-center justify-between relative z-10">
         {/* Top info */}
