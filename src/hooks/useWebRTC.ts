@@ -34,29 +34,30 @@ export interface QuizLetter {
   transliteration: string;
 }
 
-const ICE_SERVERS = [
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:stun3.l.google.com:19302" },
-  { urls: "stun:stun4.l.google.com:19302" },
-  { urls: "stun:freeturn.net:5349" },
   {
     urls: "turn:freeturn.net:3478",
     username: "free",
     credential: "free",
   },
-  {
-    urls: "turns:freeturn.net:5349",
-    username: "free",
-    credential: "free",
-  },
-  {
-    urls: "turn:relay1.expressturn.com:3478",
-    username: "efKXIVMC0SQOXBQXBH",
-    credential: "FcpoaKGOVEoW6gk0",
-  },
 ];
+
+const fetchIceServers = async (): Promise<RTCIceServer[]> => {
+  try {
+    const { data, error } = await supabase.functions.invoke("get-turn-credentials");
+    if (error || !data?.iceServers) {
+      console.warn("Failed to fetch TURN credentials, using fallback", error);
+      return FALLBACK_ICE_SERVERS;
+    }
+    console.log("Got Metered ICE servers:", data.iceServers.length);
+    return data.iceServers;
+  } catch (e) {
+    console.warn("Error fetching TURN credentials, using fallback", e);
+    return FALLBACK_ICE_SERVERS;
+  }
+};
 
 export const useWebRTC = () => {
   const { user } = useUser();
