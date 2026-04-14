@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { arabicAlphabet, ArabicLetter } from "@/data/arabicAlphabet";
+import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, Volume2, BookOpen, Target } from "lucide-react";
 import PracticeMode from "@/components/PracticeMode";
 
@@ -8,17 +9,35 @@ const Learning = () => {
   const navigate = useNavigate();
   const [selectedLetter, setSelectedLetter] = useState<ArabicLetter | null>(null);
   const [tab, setTab] = useState<"alphabet" | "practice">("alphabet");
+  const [recordings, setRecordings] = useState<Record<string, string>>({});
 
-  const speak = (text: string) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "ar-SA";
-    utterance.rate = 0.7;
-    speechSynthesis.speak(utterance);
+  useEffect(() => {
+    const fetchRecordings = async () => {
+      const { data } = await supabase.from("letter_recordings").select("letter, audio_url");
+      if (data) {
+        const map: Record<string, string> = {};
+        data.forEach((r: any) => { map[r.letter] = r.audio_url; });
+        setRecordings(map);
+      }
+    };
+    fetchRecordings();
+  }, []);
+
+  const speak = (letter: string) => {
+    // Use admin recording if available, otherwise fallback to TTS
+    if (recordings[letter]) {
+      const audio = new Audio(recordings[letter]);
+      audio.play();
+    } else {
+      const utterance = new SpeechSynthesisUtterance(letter);
+      utterance.lang = "ar-SA";
+      utterance.rate = 0.7;
+      speechSynthesis.speak(utterance);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="gradient-primary p-4 pb-6 rounded-b-3xl">
         <div className="max-w-lg mx-auto flex items-center gap-3">
           <button onClick={() => navigate("/home")} className="text-primary-foreground p-2 -ml-2 hover:bg-primary-foreground/10 rounded-xl transition-colors">
@@ -29,7 +48,6 @@ const Learning = () => {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-4">
-        {/* Tabs */}
         <div className="flex gap-2 mb-6">
           {[
             { key: "alphabet" as const, label: "Alphabet", icon: BookOpen },
@@ -50,7 +68,6 @@ const Learning = () => {
 
         {tab === "alphabet" ? (
           <>
-            {/* Letter detail */}
             {selectedLetter && (
               <div className="glass-card rounded-2xl p-6 mb-6 text-center animate-scale-in">
                 <p className="font-arabic text-7xl text-primary mb-2">{selectedLetter.letter}</p>
@@ -69,7 +86,6 @@ const Learning = () => {
               </div>
             )}
 
-            {/* Letter Grid */}
             <div className="grid grid-cols-4 gap-3">
               {arabicAlphabet.map((letter) => (
                 <button

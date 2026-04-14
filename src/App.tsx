@@ -11,6 +11,7 @@ import Learning from "./pages/Learning";
 import CallPage from "./pages/CallPage";
 import CallScreen from "./pages/CallScreen";
 import Profile from "./pages/Profile";
+import AdminRecording from "./pages/AdminRecording";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ const AppRoutes = () => (
       <Route path="/call" element={<ProtectedRoute><CallPage /></ProtectedRoute>} />
       <Route path="/call-screen" element={<ProtectedRoute><CallScreen /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+      <Route path="/admin/recording" element={<ProtectedRoute><AdminRecording /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   </>
