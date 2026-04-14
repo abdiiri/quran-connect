@@ -11,13 +11,33 @@ serve(async (req) => {
   }
 
   try {
-    const METERED_API_KEY = Deno.env.get("METERED_API_KEY");
-    if (!METERED_API_KEY) {
+    const METERED_SECRET_KEY = Deno.env.get("METERED_API_KEY");
+    if (!METERED_SECRET_KEY) {
       throw new Error("METERED_API_KEY is not configured");
     }
 
+    // Create a temporary TURN credential using the Secret Key
+    const createResponse = await fetch(
+      `https://noorify.metered.live/api/v1/turn/credential?secretKey=${METERED_SECRET_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: "lovable-temp",
+          expiryInSeconds: 3600,
+        }),
+      }
+    );
+
+    if (!createResponse.ok) {
+      throw new Error(`Metered create credential error [${createResponse.status}]: ${await createResponse.text()}`);
+    }
+
+    const credential = await createResponse.json();
+
+    // Now fetch TURN server credentials using the created apiKey
     const response = await fetch(
-      `https://noorify.metered.live/api/v1/turn/credentials?secretKey=${METERED_API_KEY}`
+      `https://noorify.metered.live/api/v1/turn/credentials?apiKey=${credential.apiKey}`
     );
 
     if (!response.ok) {
