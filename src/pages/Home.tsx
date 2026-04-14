@@ -1,6 +1,6 @@
 import { useUser } from "@/contexts/UserContext";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Phone, User, Copy, Check, GraduationCap, Mic } from "lucide-react";
+import { BookOpen, Phone, User, Copy, Check, GraduationCap, Mic, Palette } from "lucide-react";
 import { useState } from "react";
 
 const Home = () => {
@@ -61,6 +61,21 @@ const Home = () => {
             </div>
           </button>
         ))}
+
+        {user.role === "learner" && (
+          <button
+            onClick={() => navigate("/coloring")}
+            className="w-full glass-card rounded-2xl p-5 flex items-center gap-4 text-left hover:shadow-md transition-all border-2 border-accent"
+          >
+            <div className="w-12 h-12 rounded-xl gradient-gold flex items-center justify-center shrink-0">
+              <Palette className="w-6 h-6 text-primary-foreground" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground">Color the Letters</h3>
+              <p className="text-sm text-muted-foreground">Draw & color Arabic alphabets</p>
+            </div>
+          </button>
+        )}
 
         {user.role === "teacher" && (
           <button
