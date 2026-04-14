@@ -9,6 +9,7 @@ const Learning = () => {
   const navigate = useNavigate();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [tab, setTab] = useState<"alphabet" | "practice">("alphabet");
+  const [viewMode, setViewMode] = useState<"card" | "grid">("card");
   const { playLetter: speak } = useLetterAudio();
   const touchStart = useRef(0);
 
