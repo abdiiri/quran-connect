@@ -74,6 +74,10 @@ export const useWebRTC = () => {
   const [quizLetter, setQuizLetter] = useState<QuizLetter | null>(null);
 
   const cleanup = useCallback(() => {
+    if (callingTimeoutRef.current) {
+      clearTimeout(callingTimeoutRef.current);
+      callingTimeoutRef.current = null;
+    }
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     pcRef.current?.close();
