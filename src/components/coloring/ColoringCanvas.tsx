@@ -7,10 +7,11 @@ interface ColoringCanvasProps {
   brushSize: number;
   isErasing: boolean;
   onComplete: () => void;
+  onProgress: (percent: number) => void;
   resetKey: number;
 }
 
-const ColoringCanvas = ({ letter, penColor, brushSize, isErasing, onComplete, resetKey }: ColoringCanvasProps) => {
+const ColoringCanvas = ({ letter, penColor, brushSize, isErasing, onComplete, onProgress, resetKey }: ColoringCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskRef = useRef<HTMLCanvasElement>(null);
   const strokeCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -174,7 +175,9 @@ const ColoringCanvas = ({ letter, penColor, brushSize, isErasing, onComplete, re
         if (clippedData[i] > 32) filledPixels++;
       }
     }
-    if (maskPixels > 0 && filledPixels / maskPixels > 0.45) {
+    const percent = maskPixels > 0 ? (filledPixels / maskPixels) * 100 : 0;
+    onProgress(Math.min(100, percent));
+    if (percent >= 45) {
       onComplete();
     }
   };
