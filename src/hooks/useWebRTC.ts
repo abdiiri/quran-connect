@@ -427,9 +427,10 @@ export const useWebRTC = () => {
       ch.send({
         type: "broadcast",
         event: "answer",
-        payload: { answer, from: user.id },
+        payload: { answer, from: user.id, remoteName: user.name },
       });
 
+      startStatsPolling(pc);
       pendingOfferRef.current = null;
     },
     [incomingCall, user, cleanup]
@@ -557,6 +558,7 @@ export const useWebRTC = () => {
     callState,
     incomingCall,
     quizLetter,
+    connectionQuality,
     startCall,
     acceptCall,
     rejectCall,
