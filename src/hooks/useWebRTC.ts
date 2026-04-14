@@ -44,7 +44,18 @@ const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
   },
 ];
 
+// Client-side ICE server cache (valid for 45 minutes)
+let cachedIceServers: RTCIceServer[] | null = null;
+let cacheExpiresAt = 0;
+const CLIENT_CACHE_TTL = 45 * 60 * 1000;
+
 const fetchIceServers = async (): Promise<RTCIceServer[]> => {
+  const now = Date.now();
+  if (cachedIceServers && now < cacheExpiresAt) {
+    console.log("Using cached ICE servers");
+    return cachedIceServers;
+  }
+
   try {
     const { data, error } = await supabase.functions.invoke("get-turn-credentials");
     if (error || !data?.iceServers) {
@@ -52,6 +63,8 @@ const fetchIceServers = async (): Promise<RTCIceServer[]> => {
       return FALLBACK_ICE_SERVERS;
     }
     console.log("Got Metered ICE servers:", data.iceServers.length);
+    cachedIceServers = data.iceServers;
+    cacheExpiresAt = now + CLIENT_CACHE_TTL;
     return data.iceServers;
   } catch (e) {
     console.warn("Error fetching TURN credentials, using fallback", e);
