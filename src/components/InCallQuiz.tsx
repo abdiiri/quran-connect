@@ -2,14 +2,16 @@ import { useCall } from "@/contexts/CallContext";
 import { useUser } from "@/contexts/UserContext";
 import { arabicAlphabet } from "@/data/arabicAlphabet";
 import { QuizLetter } from "@/hooks/useWebRTC";
+import { useLetterAudio } from "@/hooks/useLetterAudio";
 import { useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Volume2 } from "lucide-react";
 
 const InCallQuiz = () => {
   const { user } = useUser();
   const { quizLetter, sendQuizLetter } = useCall();
   const isTeacher = user?.role === "teacher";
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { playLetter } = useLetterAudio();
 
   const handlePickLetter = (letter: typeof arabicAlphabet[0]) => {
     const ql: QuizLetter = {
@@ -22,7 +24,6 @@ const InCallQuiz = () => {
 
   return (
     <div className="w-full px-4">
-      {/* Current quiz letter display */}
       {quizLetter && (
         <div className="text-center mb-3">
           <p className="text-[10px] text-primary-foreground/50 uppercase tracking-widest mb-1">Quiz Letter</p>
@@ -32,11 +33,16 @@ const InCallQuiz = () => {
               <p className="text-sm font-semibold text-primary-foreground">{quizLetter.name}</p>
               <p className="text-xs text-primary-foreground/60">{quizLetter.transliteration}</p>
             </div>
+            <button
+              onClick={() => playLetter(quizLetter.letter)}
+              className="ml-1 w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center hover:bg-primary-foreground/30 transition-colors"
+            >
+              <Volume2 className="w-4 h-4 text-primary-foreground" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Teacher letter picker - compact toggle */}
       {isTeacher && (
         <div className="mb-2">
           <button

@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { arabicAlphabet, ArabicLetter } from "@/data/arabicAlphabet";
-import { supabase } from "@/integrations/supabase/client";
+import { useLetterAudio } from "@/hooks/useLetterAudio";
 import { ArrowLeft, Volume2, BookOpen, Target } from "lucide-react";
 import PracticeMode from "@/components/PracticeMode";
 
@@ -9,32 +9,7 @@ const Learning = () => {
   const navigate = useNavigate();
   const [selectedLetter, setSelectedLetter] = useState<ArabicLetter | null>(null);
   const [tab, setTab] = useState<"alphabet" | "practice">("alphabet");
-  const [recordings, setRecordings] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    const fetchRecordings = async () => {
-      const { data } = await supabase.from("letter_recordings").select("letter, audio_url");
-      if (data) {
-        const map: Record<string, string> = {};
-        data.forEach((r: any) => { map[r.letter] = r.audio_url; });
-        setRecordings(map);
-      }
-    };
-    fetchRecordings();
-  }, []);
-
-  const speak = (letter: string) => {
-    // Use admin recording if available, otherwise fallback to TTS
-    if (recordings[letter]) {
-      const audio = new Audio(recordings[letter]);
-      audio.play();
-    } else {
-      const utterance = new SpeechSynthesisUtterance(letter);
-      utterance.lang = "ar-SA";
-      utterance.rate = 0.7;
-      speechSynthesis.speak(utterance);
-    }
-  };
+  const { playLetter: speak } = useLetterAudio();
 
   return (
     <div className="min-h-screen bg-background">
