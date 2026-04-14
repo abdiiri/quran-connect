@@ -342,15 +342,31 @@ export const useWebRTC = () => {
   }, [incomingCall, user]);
 
   const endCall = useCallback(() => {
-    if (channelRef.current && user) {
-      channelRef.current.send({
-        type: "broadcast",
-        event: "hangup",
-        payload: { from: user.id },
-      });
+    if (user) {
+      // If we're still calling (not yet connected), also notify the target's personal channel
+      if (callState.status === "calling" && callState.remoteUserId) {
+        const targetCh = supabase.channel(`user-${callState.remoteUserId}-cancel`);
+        targetCh.subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            targetCh.send({
+              type: "broadcast",
+              event: "call-cancelled",
+              payload: { from: user.id },
+            });
+            setTimeout(() => supabase.removeChannel(targetCh), 1000);
+          }
+        });
+      }
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "hangup",
+          payload: { from: user.id },
+        });
+      }
     }
     cleanup();
-  }, [cleanup, user]);
+  }, [cleanup, user, callState.status, callState.remoteUserId]);
 
   const toggleMute = useCallback(() => {
     localStreamRef.current?.getAudioTracks().forEach((t) => {
