@@ -61,22 +61,24 @@ const Learning = () => {
               </div>
             )}
 
-            <div className="grid grid-cols-4 gap-3">
-              {arabicAlphabet.map((letter) => (
-                <button
-                  key={letter.id}
-                  onClick={() => {
-                    setSelectedLetter(letter);
-                    speak(letter.letter);
-                  }}
-                  className={`glass-card rounded-xl p-3 text-center hover:shadow-md transition-all ${
-                    selectedLetter?.id === letter.id ? "ring-2 ring-primary" : ""
-                  }`}
-                >
-                  <p className="font-arabic text-3xl text-foreground">{letter.letter}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{letter.name}</p>
-                </button>
-              ))}
+            <div className="overflow-x-auto pb-3 -mx-4 px-4 scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <div className="flex gap-3 w-max">
+                {arabicAlphabet.map((letter) => (
+                  <button
+                    key={letter.id}
+                    onClick={() => {
+                      setSelectedLetter(letter);
+                      speak(letter.letter);
+                    }}
+                    className={`glass-card rounded-xl p-3 text-center hover:shadow-md transition-all flex-shrink-0 w-20 ${
+                      selectedLetter?.id === letter.id ? "ring-2 ring-primary" : ""
+                    }`}
+                  >
+                    <p className="font-arabic text-3xl text-foreground">{letter.letter}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{letter.name}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           </>
         ) : (
