@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface User {
   id: string;
@@ -21,7 +22,21 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     const stored = localStorage.getItem("quran_user");
     if (stored) {
       try {
-        setUserState(JSON.parse(stored));
+        const parsed = JSON.parse(stored) as User;
+        setUserState(parsed);
+        // Fetch latest role from DB
+        supabase
+          .from("app_users")
+          .select("role")
+          .eq("user_id", parsed.id)
+          .single()
+          .then(({ data }) => {
+            if (data && data.role !== parsed.role) {
+              const updated = { ...parsed, role: data.role as "learner" | "teacher" };
+              setUserState(updated);
+              localStorage.setItem("quran_user", JSON.stringify(updated));
+            }
+          });
       } catch {
         localStorage.removeItem("quran_user");
       }

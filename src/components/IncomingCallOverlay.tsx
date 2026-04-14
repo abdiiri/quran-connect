@@ -1,10 +1,17 @@
 import { useCall } from "@/contexts/CallContext";
+import { useNavigate } from "react-router-dom";
 import { Phone, PhoneOff, Video } from "lucide-react";
 
 const IncomingCallOverlay = () => {
   const { incomingCall, acceptCall, rejectCall } = useCall();
+  const navigate = useNavigate();
 
   if (!incomingCall) return null;
+
+  const handleAccept = async () => {
+    await acceptCall();
+    navigate("/call-screen");
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-foreground/90 flex items-center justify-center p-6">
@@ -40,7 +47,7 @@ const IncomingCallOverlay = () => {
             <PhoneOff className="w-7 h-7 text-destructive-foreground" />
           </button>
           <button
-            onClick={acceptCall}
+            onClick={handleAccept}
             className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center hover:opacity-90 transition-all"
           >
             <Phone className="w-7 h-7 text-primary-foreground" />
