@@ -17,7 +17,7 @@ serve(async (req) => {
     }
 
     const response = await fetch(
-      `https://lovable.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`
+      `https://noorify.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`
     );
 
     if (!response.ok) {
