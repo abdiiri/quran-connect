@@ -57,6 +57,8 @@ export const useWebRTC = () => {
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
   const remoteDescSet = useRef(false);
 
+  const callingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [callState, setCallState] = useState<CallState>({
     status: "idle",
     callType: "audio",
