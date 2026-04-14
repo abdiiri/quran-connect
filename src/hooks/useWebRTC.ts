@@ -145,6 +145,37 @@ export const useWebRTC = () => {
     }
   };
 
+  const startStatsPolling = (pc: RTCPeerConnection) => {
+    if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
+    statsIntervalRef.current = setInterval(async () => {
+      if (pc.connectionState !== "connected") return;
+      try {
+        const stats = await pc.getStats();
+        let rtt = -1;
+        let packetsLost = 0;
+        let packetsReceived = 0;
+        stats.forEach((report) => {
+          if (report.type === "candidate-pair" && report.state === "succeeded") {
+            rtt = report.currentRoundTripTime ?? -1;
+          }
+          if (report.type === "inbound-rtp" && report.kind === "audio") {
+            packetsLost = report.packetsLost ?? 0;
+            packetsReceived = report.packetsReceived ?? 0;
+          }
+        });
+        const lossRate = packetsReceived > 0 ? packetsLost / (packetsLost + packetsReceived) : 0;
+        let quality: ConnectionQuality = "unknown";
+        if (rtt >= 0) {
+          if (rtt < 0.1 && lossRate < 0.01) quality = "excellent";
+          else if (rtt < 0.2 && lossRate < 0.03) quality = "good";
+          else if (rtt < 0.4 && lossRate < 0.08) quality = "fair";
+          else quality = "poor";
+        }
+        setConnectionQuality(quality);
+      } catch { /* ignore */ }
+    }, 2000);
+  };
+
   const createPeerConnection = (signalingChannel: ReturnType<typeof supabase.channel>) => {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
