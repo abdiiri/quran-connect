@@ -154,6 +154,10 @@ export const useWebRTC = () => {
     pc.onconnectionstatechange = () => {
       console.log("Connection state:", pc.connectionState);
       if (pc.connectionState === "connected") {
+        if (callingTimeoutRef.current) {
+          clearTimeout(callingTimeoutRef.current);
+          callingTimeoutRef.current = null;
+        }
         setCallState((s) => ({ ...s, status: "connected" }));
       }
       if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
