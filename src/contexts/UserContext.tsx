@@ -18,6 +18,35 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export const UserProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUserState] = useState<User | null>(null);
 
+  // Set user online status
+  useEffect(() => {
+    if (!user) return;
+    
+    const setOnline = (online: boolean) => {
+      supabase
+        .from("app_users")
+        .update({ is_online: online })
+        .eq("user_id", user.id)
+        .then(() => {});
+    };
+
+    setOnline(true);
+
+    const handleBeforeUnload = () => setOnline(false);
+    const handleVisibilityChange = () => {
+      setOnline(!document.hidden);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      setOnline(false);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [user]);
+
   useEffect(() => {
     const stored = localStorage.getItem("quran_user");
     if (stored) {

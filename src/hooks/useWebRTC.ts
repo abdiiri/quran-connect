@@ -211,7 +211,6 @@ export const useWebRTC = () => {
 
       p.on("error", (err) => {
         console.error("PeerJS error:", err.type, err.message);
-        setPeerStatus("error");
         if (err.type === "unavailable-id") {
           console.log("Peer ID taken, retrying...");
           p.destroy();
@@ -222,7 +221,13 @@ export const useWebRTC = () => {
           });
           setupPeerEvents(retryPeer);
           peerRef.current = retryPeer;
-      }
+        } else if (err.type === "peer-unavailable") {
+          // Remote peer is not online — surface to user and end call
+          console.warn("Remote peer not available");
+          cleanup();
+        } else {
+          setPeerStatus("error");
+        }
       });
 
       p.on("disconnected", () => {
@@ -285,14 +290,20 @@ export const useWebRTC = () => {
       setPeerStatus("disconnected");
       supabase.removeChannel(cancelChannel);
     };
-  }, [user, setupDataConnection]);
+  }, [user, setupDataConnection, cleanup]);
 
   // ── Initialize PeerJS ──
   useEffect(() => {
     if (!user) return;
     const peerId = toPeerId(user.id);
     console.log("Creating PeerJS peer:", peerId);
-    initPeer(peerId);
+    let cleanupFn: (() => void) | undefined;
+    initPeer(peerId).then((fn) => {
+      cleanupFn = fn;
+    });
+    return () => {
+      cleanupFn?.();
+    };
   }, [user, initPeer]);
 
   // ── CALLER FLOW ──
