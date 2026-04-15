@@ -1,10 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
+import Peer, { MediaConnection, DataConnection } from "peerjs";
 import { supabase } from "@/integrations/supabase/client";
 import { useUser } from "@/contexts/UserContext";
-
-interface RemoteCameraState {
-  isCameraOff: boolean;
-}
 
 export type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
 export type CallType = "audio" | "video";
@@ -34,153 +31,20 @@ export interface QuizLetter {
   transliteration: string;
 }
 
-const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  {
-    urls: "turn:freeturn.net:3478",
-    username: "free",
-    credential: "free",
-  },
-];
-
-// Client-side ICE server cache (valid for 45 minutes)
-let cachedIceServers: RTCIceServer[] | null = null;
-let cacheExpiresAt = 0;
-const CLIENT_CACHE_TTL = 45 * 60 * 1000;
-const CHANNEL_SUBSCRIBE_TIMEOUT_MS = 10000;
-const ICE_GATHER_TIMEOUT_MS = 5000;
-
-type SignalingChannel = ReturnType<typeof supabase.channel>;
-
-const waitForChannelSubscribed = (
-  channel: SignalingChannel,
-  label: string,
-  timeoutMs = CHANNEL_SUBSCRIBE_TIMEOUT_MS
-) =>
-  new Promise<void>((resolve, reject) => {
-    let settled = false;
-
-    const timeoutId = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    channel.subscribe((status) => {
-      console.log(`${label} status:`, status);
-
-      if (settled) return;
-
-      if (status === "SUBSCRIBED") {
-        settled = true;
-        clearTimeout(timeoutId);
-        resolve();
-        return;
-      }
-
-      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
-        settled = true;
-        clearTimeout(timeoutId);
-        reject(new Error(`${label} failed with status ${status}`));
-      }
-    });
-  });
-
-const waitForIceGatheringComplete = (pc: RTCPeerConnection, timeoutMs = ICE_GATHER_TIMEOUT_MS) =>
-  new Promise<void>((resolve) => {
-    if (pc.iceGatheringState === "complete") {
-      resolve();
-      return;
-    }
-
-    const handleStateChange = () => {
-      if (pc.iceGatheringState === "complete") {
-        clearTimeout(timeoutId);
-        pc.removeEventListener("icegatheringstatechange", handleStateChange);
-        resolve();
-      }
-    };
-
-    const timeoutId = setTimeout(() => {
-      console.warn("ICE gathering timed out, continuing with current candidates");
-      pc.removeEventListener("icegatheringstatechange", handleStateChange);
-      resolve();
-    }, timeoutMs);
-
-    pc.addEventListener("icegatheringstatechange", handleStateChange);
-  });
-
-const getLocalDescriptionOrThrow = (pc: RTCPeerConnection, label: string) => {
-  const description = pc.localDescription;
-  if (!description) {
-    throw new Error(`Missing local ${label} description`);
-  }
-  return description;
-};
-
-const sendBroadcastMessage = async (
-  channel: SignalingChannel,
-  event: string,
-  payload: Record<string, unknown>
-) => {
-  await channel.send({
-    type: "broadcast",
-    event,
-    payload,
-  });
-};
-
-const sendOneOffBroadcast = async (
-  channelName: string,
-  label: string,
-  event: string,
-  payload: Record<string, unknown>
-) => {
-  const channel = supabase.channel(channelName);
-
-  try {
-    await waitForChannelSubscribed(channel, label);
-    await sendBroadcastMessage(channel, event, payload);
-  } finally {
-    setTimeout(() => supabase.removeChannel(channel), 1000);
-  }
-};
-
-const fetchIceServers = async (): Promise<RTCIceServer[]> => {
-  const now = Date.now();
-  if (cachedIceServers && now < cacheExpiresAt) {
-    console.log("Using cached ICE servers");
-    return cachedIceServers;
-  }
-
-  try {
-    const { data, error } = await supabase.functions.invoke("get-turn-credentials");
-    if (error || !data?.iceServers) {
-      console.warn("Failed to fetch TURN credentials, using fallback", error);
-      return FALLBACK_ICE_SERVERS;
-    }
-    console.log("Got Metered ICE servers:", data.iceServers.length);
-    cachedIceServers = data.iceServers;
-    cacheExpiresAt = now + CLIENT_CACHE_TTL;
-    return data.iceServers;
-  } catch (e) {
-    console.warn("Error fetching TURN credentials, using fallback", e);
-    return FALLBACK_ICE_SERVERS;
-  }
-};
+// Convert app user ID (6 digits) to a PeerJS-safe ID
+const toPeerId = (userId: string) => `noorify-${userId}`;
 
 export const useWebRTC = () => {
   const { user } = useUser();
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const peerRef = useRef<Peer | null>(null);
+  const mediaConnRef = useRef<MediaConnection | null>(null);
+  const dataConnRef = useRef<DataConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
-  const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
-  const remoteDescSet = useRef(false);
-
   const callingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Supabase channels for call signaling (ring/reject/cancel only)
+  const signalingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const [callState, setCallState] = useState<CallState>({
     status: "idle",
@@ -198,6 +62,9 @@ export const useWebRTC = () => {
   const [quizLetter, setQuizLetter] = useState<QuizLetter | null>(null);
   const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>("unknown");
 
+  // Pending incoming call metadata (stored so acceptCall can use it)
+  const pendingIncomingMeta = useRef<{ callType: CallType; callerName: string } | null>(null);
+
   const cleanup = useCallback(() => {
     if (callingTimeoutRef.current) {
       clearTimeout(callingTimeoutRef.current);
@@ -209,14 +76,14 @@ export const useWebRTC = () => {
     }
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
-    pcRef.current?.close();
-    pcRef.current = null;
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
+    mediaConnRef.current?.close();
+    mediaConnRef.current = null;
+    dataConnRef.current?.close();
+    dataConnRef.current = null;
+    if (signalingChannelRef.current) {
+      supabase.removeChannel(signalingChannelRef.current);
+      signalingChannelRef.current = null;
     }
-    remoteDescSet.current = false;
-    iceCandidateQueue.current = [];
     setQuizLetter(null);
     setConnectionQuality("unknown");
     setCallState({
@@ -242,33 +109,43 @@ export const useWebRTC = () => {
     return stream;
   };
 
-  const flushIceCandidates = async (pc: RTCPeerConnection) => {
-    for (const candidate of iceCandidateQueue.current) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.warn("Failed to add queued ICE candidate", e);
+  const setupDataConnection = useCallback((conn: DataConnection) => {
+    dataConnRef.current = conn;
+    conn.on("data", (data: unknown) => {
+      const msg = data as { type: string; [key: string]: unknown };
+      if (msg.type === "camera-toggle") {
+        setCallState((s) => ({ ...s, remoteCameraOff: msg.isCameraOff as boolean }));
+      } else if (msg.type === "quiz-letter") {
+        setQuizLetter(msg.letter as QuizLetter);
+      } else if (msg.type === "hangup") {
+        cleanup();
       }
-    }
-    iceCandidateQueue.current = [];
-  };
+    });
+    conn.on("close", () => {
+      cleanup();
+    });
+  }, [cleanup]);
 
-  const addIceCandidate = async (pc: RTCPeerConnection, candidate: RTCIceCandidateInit) => {
-    if (remoteDescSet.current) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.warn("Failed to add ICE candidate", e);
-      }
-    } else {
-      iceCandidateQueue.current.push(candidate);
-    }
-  };
+  const setupMediaConnection = useCallback((call: MediaConnection) => {
+    mediaConnRef.current = call;
+    call.on("stream", (remoteStream) => {
+      console.log("Got remote stream");
+      setCallState((s) => ({ ...s, remoteStream, status: "connected" }));
+    });
+    call.on("close", () => {
+      cleanup();
+    });
+    call.on("error", (err) => {
+      console.error("Media connection error:", err);
+      cleanup();
+    });
+  }, [cleanup]);
 
-  const startStatsPolling = (pc: RTCPeerConnection) => {
+  const startStatsPolling = useCallback(() => {
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     statsIntervalRef.current = setInterval(async () => {
-      if (pc.connectionState !== "connected") return;
+      const pc = mediaConnRef.current?.peerConnection as RTCPeerConnection | undefined;
+      if (!pc || pc.connectionState !== "connected") return;
       try {
         const stats = await pc.getStats();
         let rtt = -1;
@@ -294,94 +171,107 @@ export const useWebRTC = () => {
         setConnectionQuality(quality);
       } catch { /* ignore */ }
     }, 2000);
-  };
+  }, []);
 
-  const createPeerConnection = (signalingChannel: ReturnType<typeof supabase.channel>, iceServers: RTCIceServer[]) => {
-    const pc = new RTCPeerConnection({
-      iceServers,
-      iceCandidatePoolSize: 10,
+  // ── Initialize PeerJS ──
+  useEffect(() => {
+    if (!user) return;
+
+    const peerId = toPeerId(user.id);
+    console.log("Creating PeerJS peer:", peerId);
+
+    const peer = new Peer(peerId, {
+      debug: 2,
+      config: {
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun1.l.google.com:19302" },
+        ],
+      },
+    });
+    peerRef.current = peer;
+
+    peer.on("open", (id) => {
+      console.log("PeerJS connected with ID:", id);
     });
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        signalingChannel.send({
-          type: "broadcast",
-          event: "ice-candidate",
-          payload: { candidate: e.candidate.toJSON(), from: user!.id },
-        });
+    peer.on("error", (err) => {
+      console.error("PeerJS error:", err.type, err.message);
+      // If the ID is already taken, destroy and retry with a random suffix
+      if (err.type === "unavailable-id") {
+        console.log("Peer ID taken, retrying...");
+        peer.destroy();
+        const retryPeer = new Peer(`${peerId}-${Date.now()}`, { debug: 2 });
+        peerRef.current = retryPeer;
       }
-    };
+    });
 
-    pc.ontrack = (e) => {
-      setCallState((s) => ({ ...s, remoteStream: e.streams[0] }));
-    };
+    // Handle incoming media calls (PeerJS handles the WebRTC handshake)
+    peer.on("call", (call) => {
+      console.log("Incoming PeerJS media call from:", call.peer);
+      // The call metadata tells us what type and who is calling
+      const meta = call.metadata as { callType: CallType; callerName: string; callerId: string } | undefined;
 
-    pc.onconnectionstatechange = () => {
-      console.log("Connection state:", pc.connectionState);
-      if (pc.connectionState === "connected") {
-        if (callingTimeoutRef.current) {
-          clearTimeout(callingTimeoutRef.current);
-          callingTimeoutRef.current = null;
+      // Store the media connection to answer later
+      mediaConnRef.current = call;
+      pendingIncomingMeta.current = {
+        callType: meta?.callType || "audio",
+        callerName: meta?.callerName || "Unknown",
+      };
+
+      // Extract the app user ID from the peer ID
+      const callerAppId = meta?.callerId || call.peer.replace("noorify-", "").split("-")[0];
+
+      setIncomingCall({
+        callerId: callerAppId,
+        callerName: meta?.callerName || `User ${callerAppId}`,
+        callType: meta?.callType || "audio",
+      });
+    });
+
+    // Handle incoming data connections
+    peer.on("connection", (conn) => {
+      console.log("Incoming PeerJS data connection from:", conn.peer);
+      setupDataConnection(conn);
+    });
+
+    // Also listen on Supabase for call notifications (ring/cancel)
+    const listenChannel = supabase.channel(`user-${user.id}`);
+    const cancelChannel = supabase.channel(`user-${user.id}-cancel`);
+
+    cancelChannel.on("broadcast", { event: "call-cancelled" }, ({ payload }) => {
+      setIncomingCall((prev) => {
+        if (prev && prev.callerId === payload.from) {
+          mediaConnRef.current?.close();
+          mediaConnRef.current = null;
+          pendingIncomingMeta.current = null;
+          return null;
         }
-        setCallState((s) => ({ ...s, status: "connected" }));
-      }
-      if (pc.connectionState === "failed") {
-        // Try ICE restart before giving up
-        console.log("Connection failed, attempting ICE restart...");
-        try {
-          pc.restartIce();
-        } catch (e) {
-          console.warn("ICE restart failed, cleaning up", e);
-          cleanup();
-        }
-      }
-      if (["closed"].includes(pc.connectionState)) {
-        cleanup();
-      }
+        return prev;
+      });
+    });
+
+    listenChannel.subscribe((status) => {
+      console.log("Personal channel status:", status);
+    });
+    cancelChannel.subscribe();
+
+    return () => {
+      console.log("Destroying PeerJS peer");
+      peer.destroy();
+      peerRef.current = null;
+      supabase.removeChannel(listenChannel);
+      supabase.removeChannel(cancelChannel);
     };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log("ICE connection state:", pc.iceConnectionState);
-      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-        setCallState((s) => ({ ...s, status: "connected" }));
-      }
-      if (pc.iceConnectionState === "failed") {
-        console.log("ICE connection failed, attempting restart...");
-        try {
-          pc.restartIce();
-        } catch (e) {
-          console.warn("ICE restart failed", e);
-          cleanup();
-        }
-      }
-      if (pc.iceConnectionState === "disconnected") {
-        // Wait a bit before cleaning up - it might reconnect
-        setTimeout(() => {
-          if (pc.iceConnectionState === "disconnected") {
-            console.log("ICE still disconnected after timeout, attempting restart...");
-            try {
-              pc.restartIce();
-            } catch {
-              cleanup();
-            }
-          }
-        }, 5000);
-      }
-    };
-
-    pcRef.current = pc;
-    return pc;
-  };
-
-  const getChannelName = (id1: string, id2: string) => {
-    const ids = [id1, id2].sort();
-    return `call-${ids[0]}-${ids[1]}`;
-  };
+  }, [user, setupDataConnection]);
 
   // ── CALLER FLOW ──
   const startCall = useCallback(
     async (targetId: string, type: CallType) => {
-      if (!user) return;
+      if (!user || !peerRef.current) return;
+
+      const peer = peerRef.current;
+      const targetPeerId = toPeerId(targetId);
 
       setCallState((s) => ({
         ...s,
@@ -391,122 +281,68 @@ export const useWebRTC = () => {
       }));
 
       const stream = await getMedia(type);
-      const iceServers = await fetchIceServers();
-      const channelName = getChannelName(user.id, targetId);
-      const ch = supabase.channel(channelName);
-      channelRef.current = ch;
-      const pc = createPeerConnection(ch, iceServers);
 
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      // Call the remote peer via PeerJS (handles all WebRTC signaling)
+      console.log("Calling peer:", targetPeerId);
+      const call = peer.call(targetPeerId, stream, {
+        metadata: {
+          callType: type,
+          callerName: user.name,
+          callerId: user.id,
+        },
+      });
 
-      // Listen for answer on shared channel
-      ch.on("broadcast", { event: "answer" }, async ({ payload }) => {
-        if (payload.from === targetId) {
-          console.log("Received answer from shared channel");
-          setCallState((s) => ({ ...s, status: "connected", remoteName: payload.remoteName || s.remoteName }));
-          if (callingTimeoutRef.current) {
-            clearTimeout(callingTimeoutRef.current);
-            callingTimeoutRef.current = null;
-          }
-          await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          remoteDescSet.current = true;
-          await flushIceCandidates(pc);
-          startStatsPolling(pc);
+      setupMediaConnection(call);
+
+      // Open a data channel for in-call messages (camera toggle, quiz, hangup)
+      const dataConn = peer.connect(targetPeerId, {
+        metadata: { callerName: user.name, callerId: user.id },
+      });
+      setupDataConnection(dataConn);
+
+      // Also send a notification via Supabase so the receiver knows who's calling
+      // (in case they need the notification before PeerJS connects)
+      const notifyCh = supabase.channel(`user-${targetId}-notify-${Date.now()}`);
+      notifyCh.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          // Channel subscribed but we don't need Supabase for signaling anymore
+          setTimeout(() => supabase.removeChannel(notifyCh), 2000);
         }
       });
 
-      // Listen for ICE candidates
-      ch.on("broadcast", { event: "ice-candidate" }, async ({ payload }) => {
-        if (payload.from === targetId && payload.candidate) {
-          await addIceCandidate(pc, payload.candidate);
+      // Start stats polling when connected
+      call.on("stream", () => {
+        if (callingTimeoutRef.current) {
+          clearTimeout(callingTimeoutRef.current);
+          callingTimeoutRef.current = null;
         }
+        startStatsPolling();
       });
-
-      ch.on("broadcast", { event: "reject" }, ({ payload }) => {
-        if (payload.from === targetId) cleanup();
-      });
-
-      ch.on("broadcast", { event: "hangup" }, ({ payload }) => {
-        if (payload.from === targetId) cleanup();
-      });
-
-      ch.on("broadcast", { event: "camera-toggle" }, ({ payload }) => {
-        if (payload.from === targetId) {
-          setCallState((s) => ({ ...s, remoteCameraOff: payload.isCameraOff }));
-        }
-      });
-
-      ch.on("broadcast", { event: "quiz-letter" }, ({ payload }) => {
-        if (payload.from === targetId) {
-          setQuizLetter(payload.letter);
-        }
-      });
-
-      // Also listen for answer on personal channel (backup signaling path)
-      const personalAnswerCh = supabase.channel(`user-${user.id}-answer`);
-      personalAnswerCh.on("broadcast", { event: "call-answer" }, async ({ payload }) => {
-        if (payload.from === targetId) {
-          console.log("Received answer from personal channel (backup)");
-          if (pc.signalingState === "have-local-offer") {
-            setCallState((s) => ({ ...s, status: "connected", remoteName: payload.remoteName || s.remoteName }));
-            if (callingTimeoutRef.current) {
-              clearTimeout(callingTimeoutRef.current);
-              callingTimeoutRef.current = null;
-            }
-            await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
-            remoteDescSet.current = true;
-            await flushIceCandidates(pc);
-            startStatsPolling(pc);
-          }
-        }
-      });
-      await waitForChannelSubscribed(personalAnswerCh, "Caller answer channel");
-
-      await waitForChannelSubscribed(ch, "Caller call channel");
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await waitForIceGatheringComplete(pc);
-      const offerDescription = getLocalDescriptionOrThrow(pc, "offer");
-
-      // Send offer on shared channel
-      await sendBroadcastMessage(ch, "offer", {
-        offer: offerDescription,
-        from: user.id,
-        callerName: user.name,
-        callType: type,
-      });
-
-      // Notify target's personal channel
-      const targetCh = supabase.channel(`user-${targetId}`);
-      await waitForChannelSubscribed(targetCh, `Target notify channel ${targetId}`);
-      await sendBroadcastMessage(targetCh, "incoming-call", {
-        offer: offerDescription,
-        from: user.id,
-        callerName: user.name,
-        callType: type,
-      });
-      setTimeout(() => supabase.removeChannel(targetCh), 3000);
 
       // Auto-cancel after 30 seconds
       callingTimeoutRef.current = setTimeout(() => {
         console.log("Call auto-cancelled after 30s timeout");
         setCallState((prev) => {
           if (prev.status === "calling") {
-            void sendOneOffBroadcast(
-              `user-${targetId}-cancel`,
-              `Cancel notify channel ${targetId}`,
-              "call-cancelled",
-              { from: user!.id }
-            );
-            supabase.removeChannel(personalAnswerCh);
+            // Notify the target that the call was cancelled
+            const cancelCh = supabase.channel(`user-${targetId}-cancel`);
+            cancelCh.subscribe((s) => {
+              if (s === "SUBSCRIBED") {
+                cancelCh.send({
+                  type: "broadcast",
+                  event: "call-cancelled",
+                  payload: { from: user!.id },
+                });
+                setTimeout(() => supabase.removeChannel(cancelCh), 1000);
+              }
+            });
             cleanup();
           }
           return prev;
         });
       }, 30000);
     },
-    [user, cleanup]
+    [user, cleanup, setupMediaConnection, setupDataConnection, startStatsPolling]
   );
 
   // ── RECEIVER FLOW ──
@@ -514,9 +350,10 @@ export const useWebRTC = () => {
     async () => {
       if (!incomingCall || !user) return;
       const { callerId, callType } = incomingCall;
-      const offer = pendingOfferRef.current;
-      if (!offer) {
-        console.error("No pending offer to accept");
+
+      const pendingCall = mediaConnRef.current;
+      if (!pendingCall) {
+        console.error("No pending media connection to answer");
         return;
       }
 
@@ -530,102 +367,48 @@ export const useWebRTC = () => {
       setIncomingCall(null);
 
       const stream = await getMedia(callType);
-      const iceServers = await fetchIceServers();
-      const channelName = getChannelName(user.id, callerId);
-      const ch = supabase.channel(channelName);
-      channelRef.current = ch;
-      const pc = createPeerConnection(ch, iceServers);
 
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      // Answer the PeerJS call with our local stream
+      pendingCall.answer(stream);
+      setupMediaConnection(pendingCall);
 
-      // Listen for ICE candidates from caller
-      ch.on("broadcast", { event: "ice-candidate" }, async ({ payload }) => {
-        if (payload.from === callerId && payload.candidate) {
-          await addIceCandidate(pc, payload.candidate);
-        }
+      pendingCall.on("stream", () => {
+        startStatsPolling();
       });
 
-      // Listen for hangup
-      ch.on("broadcast", { event: "hangup" }, ({ payload }) => {
-        if (payload.from === callerId) cleanup();
-      });
-
-      // Listen for camera toggle
-      ch.on("broadcast", { event: "camera-toggle" }, ({ payload }) => {
-        if (payload.from === callerId) {
-          setCallState((s) => ({ ...s, remoteCameraOff: payload.isCameraOff }));
-        }
-      });
-
-      // Listen for quiz letters
-      ch.on("broadcast", { event: "quiz-letter" }, ({ payload }) => {
-        if (payload.from === callerId) {
-          setQuizLetter(payload.letter);
-        }
-      });
-
-      // Subscribe first, then set descriptions
-      await waitForChannelSubscribed(ch, "Receiver call channel");
-
-      // Set remote description (the offer), create answer
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      remoteDescSet.current = true;
-      await flushIceCandidates(pc);
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await waitForIceGatheringComplete(pc);
-      const answerDescription = getLocalDescriptionOrThrow(pc, "answer");
-
-      const answerPayload = { answer: answerDescription, from: user.id, remoteName: user.name };
-
-      // Send answer on shared channel
-      await sendBroadcastMessage(ch, "answer", answerPayload);
-
-      // Also send answer on caller's personal channel as backup
-      const callerAnswerCh = supabase.channel(`user-${callerId}-answer`);
-      await waitForChannelSubscribed(callerAnswerCh, `Caller answer channel ${callerId}`);
-      await sendBroadcastMessage(callerAnswerCh, "call-answer", answerPayload);
-
-      // Retry sending answer a few times to handle race conditions
-      for (let i = 0; i < 3; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        if (pc.connectionState === "connected" || pc.iceConnectionState === "connected") break;
-        console.log(`Retrying answer send (attempt ${i + 2})...`);
-        await sendBroadcastMessage(ch, "answer", answerPayload);
-        await sendBroadcastMessage(callerAnswerCh, "call-answer", answerPayload);
-      }
-
-      setTimeout(() => supabase.removeChannel(callerAnswerCh), 10000);
-
-      startStatsPolling(pc);
-      pendingOfferRef.current = null;
+      pendingIncomingMeta.current = null;
     },
-    [incomingCall, user, cleanup]
+    [incomingCall, user, setupMediaConnection, startStatsPolling]
   );
 
-  const rejectCall = useCallback(async () => {
+  const rejectCall = useCallback(() => {
     if (!incomingCall || !user) return;
-    const channelName = getChannelName(user.id, incomingCall.callerId);
-    await sendOneOffBroadcast(channelName, `Reject channel ${channelName}`, "reject", { from: user.id });
-    pendingOfferRef.current = null;
+    // Close the pending media connection
+    mediaConnRef.current?.close();
+    mediaConnRef.current = null;
+    pendingIncomingMeta.current = null;
     setIncomingCall(null);
   }, [incomingCall, user]);
 
   const endCall = useCallback(() => {
-    if (user) {
-      // If we're still calling (not yet connected), also notify the target's personal channel
-      if (callState.status === "calling" && callState.remoteUserId) {
-        void sendOneOffBroadcast(
-          `user-${callState.remoteUserId}-cancel`,
-          `Cancel notify channel ${callState.remoteUserId}`,
-          "call-cancelled",
-          { from: user.id }
-        );
-      }
-      if (channelRef.current) {
-        void sendBroadcastMessage(channelRef.current, "hangup", { from: user.id });
-      }
+    // Send hangup via data channel before closing
+    if (dataConnRef.current?.open) {
+      try {
+        dataConnRef.current.send({ type: "hangup" });
+      } catch { /* ignore */ }
+    }
+    if (user && callState.status === "calling" && callState.remoteUserId) {
+      const cancelCh = supabase.channel(`user-${callState.remoteUserId}-cancel`);
+      cancelCh.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          cancelCh.send({
+            type: "broadcast",
+            event: "call-cancelled",
+            payload: { from: user.id },
+          });
+          setTimeout(() => supabase.removeChannel(cancelCh), 1000);
+        }
+      });
     }
     cleanup();
   }, [cleanup, user, callState.status, callState.remoteUserId]);
@@ -643,67 +426,17 @@ export const useWebRTC = () => {
       t.enabled = !newCameraOff;
     });
     setCallState((s) => ({ ...s, isCameraOff: newCameraOff }));
-    // Broadcast camera state to remote user
-    if (channelRef.current && user) {
-      channelRef.current.send({
-        type: "broadcast",
-        event: "camera-toggle",
-        payload: { isCameraOff: newCameraOff, from: user.id },
-      });
+    if (dataConnRef.current?.open) {
+      dataConnRef.current.send({ type: "camera-toggle", isCameraOff: newCameraOff });
     }
-  }, [callState.isCameraOff, user]);
+  }, [callState.isCameraOff]);
 
   const sendQuizLetter = useCallback((letter: QuizLetter) => {
-    if (channelRef.current && user) {
-      channelRef.current.send({
-        type: "broadcast",
-        event: "quiz-letter",
-        payload: { letter, from: user.id },
-      });
-      // Also show it locally for the teacher
-      setQuizLetter(letter);
+    if (dataConnRef.current?.open) {
+      dataConnRef.current.send({ type: "quiz-letter", letter });
     }
-  }, [user]);
-
-  // Listen for incoming calls on personal channel
-  useEffect(() => {
-    if (!user) return;
-
-    const listenChannel = supabase.channel(`user-${user.id}`);
-    const cancelChannel = supabase.channel(`user-${user.id}-cancel`);
-
-    listenChannel.on("broadcast", { event: "incoming-call" }, ({ payload }) => {
-      if (callState.status !== "idle") return;
-      console.log("Incoming call from", payload.from);
-      pendingOfferRef.current = payload.offer;
-      setIncomingCall({
-        callerId: payload.from,
-        callerName: payload.callerName,
-        callType: payload.callType,
-      });
-    });
-
-    cancelChannel.on("broadcast", { event: "call-cancelled" }, ({ payload }) => {
-      // If we have an incoming call from this caller, dismiss it
-      setIncomingCall((prev) => {
-        if (prev && prev.callerId === payload.from) {
-          pendingOfferRef.current = null;
-          return null;
-        }
-        return prev;
-      });
-    });
-
-    listenChannel.subscribe((status) => {
-      console.log("Personal channel status:", status);
-    });
-    cancelChannel.subscribe();
-
-    return () => {
-      supabase.removeChannel(listenChannel);
-      supabase.removeChannel(cancelChannel);
-    };
-  }, [user, callState.status]);
+    setQuizLetter(letter);
+  }, []);
 
   return {
     callState,
