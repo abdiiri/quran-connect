@@ -175,88 +175,94 @@ export const useWebRTC = () => {
     }, 2000);
   }, []);
 
-  // ── Initialize PeerJS ──
-  useEffect(() => {
-    if (!user) return;
+  // Fetch TURN credentials and create PeerJS peer
+  const initPeer = useCallback(async (peerId: string) => {
+    setPeerStatus("connecting");
 
-    const peerId = toPeerId(user.id);
-    console.log("Creating PeerJS peer:", peerId);
+    // Fetch TURN servers from edge function
+    let iceServers: RTCIceServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ];
+
+    try {
+      const { data, error } = await supabase.functions.invoke("get-turn-credentials");
+      if (!error && data?.iceServers) {
+        iceServers = [...iceServers, ...data.iceServers];
+        console.log("TURN servers loaded:", data.iceServers.length, "servers");
+      } else {
+        console.warn("Failed to fetch TURN credentials, using STUN only:", error);
+      }
+    } catch (err) {
+      console.warn("TURN credential fetch error, using STUN only:", err);
+    }
 
     const peer = new Peer(peerId, {
       debug: 2,
-      config: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
-      },
+      config: { iceServers },
     });
     peerRef.current = peer;
 
-    peer.on("open", (id) => {
-      console.log("PeerJS connected with ID:", id);
-      setPeerStatus("connected");
-    });
-
-    peer.on("error", (err) => {
-      console.error("PeerJS error:", err.type, err.message);
-      setPeerStatus("error");
-      // If the ID is already taken, destroy and retry with a random suffix
-      if (err.type === "unavailable-id") {
-        console.log("Peer ID taken, retrying...");
-        peer.destroy();
-        setPeerStatus("connecting");
-        const retryPeer = new Peer(`${peerId}-${Date.now()}`, { debug: 2 });
-        retryPeer.on("open", () => setPeerStatus("connected"));
-        retryPeer.on("error", () => setPeerStatus("error"));
-        retryPeer.on("disconnected", () => setPeerStatus("disconnected"));
-        peerRef.current = retryPeer;
-      }
-    });
-
-    peer.on("disconnected", () => {
-      console.log("PeerJS disconnected, attempting reconnect...");
-      setPeerStatus("disconnected");
-      try { peer.reconnect(); } catch { /* ignore */ }
-    });
-
-    peer.on("close", () => {
-      setPeerStatus("disconnected");
-    });
-
-    // Handle incoming media calls (PeerJS handles the WebRTC handshake)
-    peer.on("call", (call) => {
-      console.log("Incoming PeerJS media call from:", call.peer);
-      // The call metadata tells us what type and who is calling
-      const meta = call.metadata as { callType: CallType; callerName: string; callerId: string } | undefined;
-
-      // Store the media connection to answer later
-      mediaConnRef.current = call;
-      pendingIncomingMeta.current = {
-        callType: meta?.callType || "audio",
-        callerName: meta?.callerName || "Unknown",
-      };
-
-      // Extract the app user ID from the peer ID
-      const callerAppId = meta?.callerId || call.peer.replace("noorify-", "").split("-")[0];
-
-      setIncomingCall({
-        callerId: callerAppId,
-        callerName: meta?.callerName || `User ${callerAppId}`,
-        callType: meta?.callType || "audio",
+    const setupPeerEvents = (p: Peer) => {
+      p.on("open", (id) => {
+        console.log("PeerJS connected with ID:", id);
+        setPeerStatus("connected");
       });
-    });
 
-    // Handle incoming data connections
-    peer.on("connection", (conn) => {
-      console.log("Incoming PeerJS data connection from:", conn.peer);
-      setupDataConnection(conn);
-    });
+      p.on("error", (err) => {
+        console.error("PeerJS error:", err.type, err.message);
+        setPeerStatus("error");
+        if (err.type === "unavailable-id") {
+          console.log("Peer ID taken, retrying...");
+          p.destroy();
+          setPeerStatus("connecting");
+          const retryPeer = new Peer(`${peerId}-${Date.now()}`, {
+            debug: 2,
+            config: { iceServers },
+          });
+          setupPeerEvents(retryPeer);
+          peerRef.current = retryPeer;
+      }
+      });
 
-    // Also listen on Supabase for call notifications (ring/cancel)
-    const listenChannel = supabase.channel(`user-${user.id}`);
+      p.on("disconnected", () => {
+        console.log("PeerJS disconnected, attempting reconnect...");
+        setPeerStatus("disconnected");
+        try { p.reconnect(); } catch { /* ignore */ }
+      });
+
+      p.on("close", () => {
+        setPeerStatus("disconnected");
+      });
+
+      // Handle incoming media calls
+      p.on("call", (call) => {
+        console.log("Incoming PeerJS media call from:", call.peer);
+        const meta = call.metadata as { callType: CallType; callerName: string; callerId: string } | undefined;
+        mediaConnRef.current = call;
+        pendingIncomingMeta.current = {
+          callType: meta?.callType || "audio",
+          callerName: meta?.callerName || "Unknown",
+        };
+        const callerAppId = meta?.callerId || call.peer.replace("noorify-", "").split("-")[0];
+        setIncomingCall({
+          callerId: callerAppId,
+          callerName: meta?.callerName || `User ${callerAppId}`,
+          callType: meta?.callType || "audio",
+        });
+      });
+
+      // Handle incoming data connections
+      p.on("connection", (conn) => {
+        console.log("Incoming PeerJS data connection from:", conn.peer);
+        setupDataConnection(conn);
+      });
+    };
+
+    setupPeerEvents(peer);
+
+    // Listen on Supabase for call cancellations
     const cancelChannel = supabase.channel(`user-${user.id}-cancel`);
-
     cancelChannel.on("broadcast", { event: "call-cancelled" }, ({ payload }) => {
       setIncomingCall((prev) => {
         if (prev && prev.callerId === payload.from) {
@@ -268,21 +274,26 @@ export const useWebRTC = () => {
         return prev;
       });
     });
-
-    listenChannel.subscribe((status) => {
-      console.log("Personal channel status:", status);
-    });
     cancelChannel.subscribe();
 
     return () => {
       console.log("Destroying PeerJS peer");
-      peer.destroy();
-      peerRef.current = null;
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
       setPeerStatus("disconnected");
-      supabase.removeChannel(listenChannel);
       supabase.removeChannel(cancelChannel);
     };
   }, [user, setupDataConnection]);
+
+  // ── Initialize PeerJS ──
+  useEffect(() => {
+    if (!user) return;
+    const peerId = toPeerId(user.id);
+    console.log("Creating PeerJS peer:", peerId);
+    initPeer(peerId);
+  }, [user, initPeer]);
 
   // ── CALLER FLOW ──
   const startCall = useCallback(
