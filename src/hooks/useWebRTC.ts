@@ -175,42 +175,53 @@ export const useWebRTC = () => {
     }, 2000);
   }, []);
 
-  // ── Initialize PeerJS ──
-  useEffect(() => {
-    if (!user) return;
+  // Fetch TURN credentials and create PeerJS peer
+  const initPeer = useCallback(async (peerId: string) => {
+    setPeerStatus("connecting");
 
-    const peerId = toPeerId(user.id);
-    console.log("Creating PeerJS peer:", peerId);
+    // Fetch TURN servers from edge function
+    let iceServers: RTCIceServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ];
+
+    try {
+      const { data, error } = await supabase.functions.invoke("get-turn-credentials");
+      if (!error && data?.iceServers) {
+        iceServers = [...iceServers, ...data.iceServers];
+        console.log("TURN servers loaded:", data.iceServers.length, "servers");
+      } else {
+        console.warn("Failed to fetch TURN credentials, using STUN only:", error);
+      }
+    } catch (err) {
+      console.warn("TURN credential fetch error, using STUN only:", err);
+    }
 
     const peer = new Peer(peerId, {
       debug: 2,
-      config: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
-      },
+      config: { iceServers },
     });
     peerRef.current = peer;
 
-    peer.on("open", (id) => {
-      console.log("PeerJS connected with ID:", id);
-      setPeerStatus("connected");
-    });
+    const setupPeerEvents = (p: Peer) => {
+      p.on("open", (id) => {
+        console.log("PeerJS connected with ID:", id);
+        setPeerStatus("connected");
+      });
 
-    peer.on("error", (err) => {
-      console.error("PeerJS error:", err.type, err.message);
-      setPeerStatus("error");
-      // If the ID is already taken, destroy and retry with a random suffix
-      if (err.type === "unavailable-id") {
-        console.log("Peer ID taken, retrying...");
-        peer.destroy();
-        setPeerStatus("connecting");
-        const retryPeer = new Peer(`${peerId}-${Date.now()}`, { debug: 2 });
-        retryPeer.on("open", () => setPeerStatus("connected"));
-        retryPeer.on("error", () => setPeerStatus("error"));
-        retryPeer.on("disconnected", () => setPeerStatus("disconnected"));
-        peerRef.current = retryPeer;
+      p.on("error", (err) => {
+        console.error("PeerJS error:", err.type, err.message);
+        setPeerStatus("error");
+        if (err.type === "unavailable-id") {
+          console.log("Peer ID taken, retrying...");
+          p.destroy();
+          setPeerStatus("connecting");
+          const retryPeer = new Peer(`${peerId}-${Date.now()}`, {
+            debug: 2,
+            config: { iceServers },
+          });
+          setupPeerEvents(retryPeer);
+          peerRef.current = retryPeer;
       }
     });
 
