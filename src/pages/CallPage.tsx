@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 const CallPage = () => {
   const navigate = useNavigate();
   const { user } = useUser();
-  const { startCall } = useCall();
+  const { startCall, peerStatus } = useCall();
   const [targetId, setTargetId] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -23,16 +23,27 @@ const CallPage = () => {
       return;
     }
 
+    if (peerStatus !== "connected") {
+      toast.error("You are not connected to the signaling server. Please wait...");
+      return;
+    }
+
     setLoading(true);
-    // Check if target user exists
+    // Check if target user exists and is online
     const { data } = await supabase
       .from("app_users")
-      .select("user_id, name")
+      .select("user_id, name, is_online")
       .eq("user_id", targetId)
       .single();
 
     if (!data) {
       toast.error("User not found. Check the ID and try again.");
+      setLoading(false);
+      return;
+    }
+
+    if (!data.is_online) {
+      toast.error(`${data.name} is currently offline. They need to have the app open to receive calls.`);
       setLoading(false);
       return;
     }
