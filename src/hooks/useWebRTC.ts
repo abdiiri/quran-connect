@@ -290,7 +290,7 @@ export const useWebRTC = () => {
       setPeerStatus("disconnected");
       supabase.removeChannel(cancelChannel);
     };
-  }, [user, setupDataConnection]);
+  }, [user, setupDataConnection, cleanup]);
 
   // ── Initialize PeerJS ──
   useEffect(() => {
