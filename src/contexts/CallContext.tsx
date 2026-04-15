@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode } from "react";
-import { useWebRTC, CallStatus, CallType, QuizLetter, ConnectionQuality } from "@/hooks/useWebRTC";
+import { useWebRTC, CallStatus, CallType, QuizLetter, ConnectionQuality, PeerStatus } from "@/hooks/useWebRTC";
 
 interface CallContextType {
   callState: {
@@ -16,6 +16,7 @@ interface CallContextType {
   incomingCall: { callerId: string; callerName: string; callType: CallType } | null;
   quizLetter: QuizLetter | null;
   connectionQuality: ConnectionQuality;
+  peerStatus: PeerStatus;
   startCall: (targetId: string, type: CallType) => Promise<void>;
   acceptCall: () => Promise<void>;
   rejectCall: () => void;

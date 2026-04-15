@@ -6,6 +6,7 @@ import { useUser } from "@/contexts/UserContext";
 export type CallStatus = "idle" | "calling" | "ringing" | "connected" | "ended";
 export type CallType = "audio" | "video";
 export type ConnectionQuality = "excellent" | "good" | "fair" | "poor" | "unknown";
+export type PeerStatus = "connecting" | "connected" | "disconnected" | "error";
 
 interface CallState {
   status: CallStatus;
@@ -61,6 +62,7 @@ export const useWebRTC = () => {
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [quizLetter, setQuizLetter] = useState<QuizLetter | null>(null);
   const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>("unknown");
+  const [peerStatus, setPeerStatus] = useState<PeerStatus>("disconnected");
 
   // Pending incoming call metadata (stored so acceptCall can use it)
   const pendingIncomingMeta = useRef<{ callType: CallType; callerName: string } | null>(null);
@@ -193,17 +195,33 @@ export const useWebRTC = () => {
 
     peer.on("open", (id) => {
       console.log("PeerJS connected with ID:", id);
+      setPeerStatus("connected");
     });
 
     peer.on("error", (err) => {
       console.error("PeerJS error:", err.type, err.message);
+      setPeerStatus("error");
       // If the ID is already taken, destroy and retry with a random suffix
       if (err.type === "unavailable-id") {
         console.log("Peer ID taken, retrying...");
         peer.destroy();
+        setPeerStatus("connecting");
         const retryPeer = new Peer(`${peerId}-${Date.now()}`, { debug: 2 });
+        retryPeer.on("open", () => setPeerStatus("connected"));
+        retryPeer.on("error", () => setPeerStatus("error"));
+        retryPeer.on("disconnected", () => setPeerStatus("disconnected"));
         peerRef.current = retryPeer;
       }
+    });
+
+    peer.on("disconnected", () => {
+      console.log("PeerJS disconnected, attempting reconnect...");
+      setPeerStatus("disconnected");
+      try { peer.reconnect(); } catch { /* ignore */ }
+    });
+
+    peer.on("close", () => {
+      setPeerStatus("disconnected");
     });
 
     // Handle incoming media calls (PeerJS handles the WebRTC handshake)
@@ -260,6 +278,7 @@ export const useWebRTC = () => {
       console.log("Destroying PeerJS peer");
       peer.destroy();
       peerRef.current = null;
+      setPeerStatus("disconnected");
       supabase.removeChannel(listenChannel);
       supabase.removeChannel(cancelChannel);
     };
@@ -443,6 +462,7 @@ export const useWebRTC = () => {
     incomingCall,
     quizLetter,
     connectionQuality,
+    peerStatus,
     startCall,
     acceptCall,
     rejectCall,

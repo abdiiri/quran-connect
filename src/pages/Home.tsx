@@ -1,10 +1,20 @@
 import { useUser } from "@/contexts/UserContext";
+import { useCall } from "@/contexts/CallContext";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Phone, User, Copy, Check, GraduationCap, Mic, Palette } from "lucide-react";
+import { BookOpen, Phone, User, Copy, Check, GraduationCap, Mic, Palette, Wifi, WifiOff } from "lucide-react";
 import { useState } from "react";
+import type { PeerStatus } from "@/hooks/useWebRTC";
+
+const peerStatusConfig: Record<PeerStatus, { color: string; label: string; dot: string }> = {
+  connected: { color: "text-green-500", label: "Online", dot: "bg-green-500" },
+  connecting: { color: "text-yellow-500", label: "Connecting…", dot: "bg-yellow-500 animate-pulse" },
+  disconnected: { color: "text-muted-foreground", label: "Offline", dot: "bg-muted-foreground" },
+  error: { color: "text-destructive", label: "Error", dot: "bg-destructive" },
+};
 
 const Home = () => {
   const { user } = useUser();
+  const { peerStatus } = useCall();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
 
@@ -40,6 +50,10 @@ const Home = () => {
               ID: {user.id}
               {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
             </button>
+            <span className={`flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-primary-foreground/20 ${peerStatusConfig[peerStatus].color}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${peerStatusConfig[peerStatus].dot}`} />
+              {peerStatusConfig[peerStatus].label}
+            </span>
           </div>
         </div>
       </div>
