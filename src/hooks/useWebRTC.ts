@@ -223,51 +223,46 @@ export const useWebRTC = () => {
           setupPeerEvents(retryPeer);
           peerRef.current = retryPeer;
       }
-    });
-
-    peer.on("disconnected", () => {
-      console.log("PeerJS disconnected, attempting reconnect...");
-      setPeerStatus("disconnected");
-      try { peer.reconnect(); } catch { /* ignore */ }
-    });
-
-    peer.on("close", () => {
-      setPeerStatus("disconnected");
-    });
-
-    // Handle incoming media calls (PeerJS handles the WebRTC handshake)
-    peer.on("call", (call) => {
-      console.log("Incoming PeerJS media call from:", call.peer);
-      // The call metadata tells us what type and who is calling
-      const meta = call.metadata as { callType: CallType; callerName: string; callerId: string } | undefined;
-
-      // Store the media connection to answer later
-      mediaConnRef.current = call;
-      pendingIncomingMeta.current = {
-        callType: meta?.callType || "audio",
-        callerName: meta?.callerName || "Unknown",
-      };
-
-      // Extract the app user ID from the peer ID
-      const callerAppId = meta?.callerId || call.peer.replace("noorify-", "").split("-")[0];
-
-      setIncomingCall({
-        callerId: callerAppId,
-        callerName: meta?.callerName || `User ${callerAppId}`,
-        callType: meta?.callType || "audio",
       });
-    });
 
-    // Handle incoming data connections
-    peer.on("connection", (conn) => {
-      console.log("Incoming PeerJS data connection from:", conn.peer);
-      setupDataConnection(conn);
-    });
+      p.on("disconnected", () => {
+        console.log("PeerJS disconnected, attempting reconnect...");
+        setPeerStatus("disconnected");
+        try { p.reconnect(); } catch { /* ignore */ }
+      });
 
-    // Also listen on Supabase for call notifications (ring/cancel)
-    const listenChannel = supabase.channel(`user-${user.id}`);
+      p.on("close", () => {
+        setPeerStatus("disconnected");
+      });
+
+      // Handle incoming media calls
+      p.on("call", (call) => {
+        console.log("Incoming PeerJS media call from:", call.peer);
+        const meta = call.metadata as { callType: CallType; callerName: string; callerId: string } | undefined;
+        mediaConnRef.current = call;
+        pendingIncomingMeta.current = {
+          callType: meta?.callType || "audio",
+          callerName: meta?.callerName || "Unknown",
+        };
+        const callerAppId = meta?.callerId || call.peer.replace("noorify-", "").split("-")[0];
+        setIncomingCall({
+          callerId: callerAppId,
+          callerName: meta?.callerName || `User ${callerAppId}`,
+          callType: meta?.callType || "audio",
+        });
+      });
+
+      // Handle incoming data connections
+      p.on("connection", (conn) => {
+        console.log("Incoming PeerJS data connection from:", conn.peer);
+        setupDataConnection(conn);
+      });
+    };
+
+    setupPeerEvents(peer);
+
+    // Listen on Supabase for call cancellations
     const cancelChannel = supabase.channel(`user-${user.id}-cancel`);
-
     cancelChannel.on("broadcast", { event: "call-cancelled" }, ({ payload }) => {
       setIncomingCall((prev) => {
         if (prev && prev.callerId === payload.from) {
@@ -279,21 +274,26 @@ export const useWebRTC = () => {
         return prev;
       });
     });
-
-    listenChannel.subscribe((status) => {
-      console.log("Personal channel status:", status);
-    });
     cancelChannel.subscribe();
 
     return () => {
       console.log("Destroying PeerJS peer");
-      peer.destroy();
-      peerRef.current = null;
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
       setPeerStatus("disconnected");
-      supabase.removeChannel(listenChannel);
       supabase.removeChannel(cancelChannel);
     };
   }, [user, setupDataConnection]);
+
+  // ── Initialize PeerJS ──
+  useEffect(() => {
+    if (!user) return;
+    const peerId = toPeerId(user.id);
+    console.log("Creating PeerJS peer:", peerId);
+    initPeer(peerId);
+  }, [user, initPeer]);
 
   // ── CALLER FLOW ──
   const startCall = useCallback(
