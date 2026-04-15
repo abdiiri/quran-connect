@@ -48,6 +48,104 @@ const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
 let cachedIceServers: RTCIceServer[] | null = null;
 let cacheExpiresAt = 0;
 const CLIENT_CACHE_TTL = 45 * 60 * 1000;
+const CHANNEL_SUBSCRIBE_TIMEOUT_MS = 10000;
+const ICE_GATHER_TIMEOUT_MS = 5000;
+
+type SignalingChannel = ReturnType<typeof supabase.channel>;
+
+const waitForChannelSubscribed = (
+  channel: SignalingChannel,
+  label: string,
+  timeoutMs = CHANNEL_SUBSCRIBE_TIMEOUT_MS
+) =>
+  new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    channel.subscribe((status) => {
+      console.log(`${label} status:`, status);
+
+      if (settled) return;
+
+      if (status === "SUBSCRIBED") {
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve();
+        return;
+      }
+
+      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(new Error(`${label} failed with status ${status}`));
+      }
+    });
+  });
+
+const waitForIceGatheringComplete = (pc: RTCPeerConnection, timeoutMs = ICE_GATHER_TIMEOUT_MS) =>
+  new Promise<void>((resolve) => {
+    if (pc.iceGatheringState === "complete") {
+      resolve();
+      return;
+    }
+
+    const handleStateChange = () => {
+      if (pc.iceGatheringState === "complete") {
+        clearTimeout(timeoutId);
+        pc.removeEventListener("icegatheringstatechange", handleStateChange);
+        resolve();
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      console.warn("ICE gathering timed out, continuing with current candidates");
+      pc.removeEventListener("icegatheringstatechange", handleStateChange);
+      resolve();
+    }, timeoutMs);
+
+    pc.addEventListener("icegatheringstatechange", handleStateChange);
+  });
+
+const getLocalDescriptionOrThrow = (pc: RTCPeerConnection, label: string) => {
+  const description = pc.localDescription;
+  if (!description) {
+    throw new Error(`Missing local ${label} description`);
+  }
+  return description;
+};
+
+const sendBroadcastMessage = async (
+  channel: SignalingChannel,
+  event: string,
+  payload: Record<string, unknown>
+) => {
+  await channel.send({
+    type: "broadcast",
+    event,
+    payload,
+  });
+};
+
+const sendOneOffBroadcast = async (
+  channelName: string,
+  label: string,
+  event: string,
+  payload: Record<string, unknown>
+) => {
+  const channel = supabase.channel(channelName);
+
+  try {
+    await waitForChannelSubscribed(channel, label);
+    await sendBroadcastMessage(channel, event, payload);
+  } finally {
+    setTimeout(() => supabase.removeChannel(channel), 1000);
+  }
+};
 
 const fetchIceServers = async (): Promise<RTCIceServer[]> => {
   const now = Date.now();
@@ -362,42 +460,31 @@ export const useWebRTC = () => {
           }
         }
       });
-      await personalAnswerCh.subscribe();
+      await waitForChannelSubscribed(personalAnswerCh, "Caller answer channel");
 
-      await ch.subscribe((status) => {
-        console.log("Caller channel status:", status);
-      });
-
-      await new Promise((r) => setTimeout(r, 500));
+      await waitForChannelSubscribed(ch, "Caller call channel");
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      await waitForIceGatheringComplete(pc);
+      const offerDescription = getLocalDescriptionOrThrow(pc, "offer");
 
       // Send offer on shared channel
-      ch.send({
-        type: "broadcast",
-        event: "offer",
-        payload: {
-          offer,
-          from: user.id,
-          callerName: user.name,
-          callType: type,
-        },
+      await sendBroadcastMessage(ch, "offer", {
+        offer: offerDescription,
+        from: user.id,
+        callerName: user.name,
+        callType: type,
       });
 
       // Notify target's personal channel
       const targetCh = supabase.channel(`user-${targetId}`);
-      await targetCh.subscribe();
-      await new Promise((r) => setTimeout(r, 300));
-      targetCh.send({
-        type: "broadcast",
-        event: "incoming-call",
-        payload: {
-          offer,
-          from: user.id,
-          callerName: user.name,
-          callType: type,
-        },
+      await waitForChannelSubscribed(targetCh, `Target notify channel ${targetId}`);
+      await sendBroadcastMessage(targetCh, "incoming-call", {
+        offer: offerDescription,
+        from: user.id,
+        callerName: user.name,
+        callType: type,
       });
       setTimeout(() => supabase.removeChannel(targetCh), 3000);
 
@@ -406,17 +493,12 @@ export const useWebRTC = () => {
         console.log("Call auto-cancelled after 30s timeout");
         setCallState((prev) => {
           if (prev.status === "calling") {
-            const cancelCh = supabase.channel(`user-${targetId}-cancel`);
-            cancelCh.subscribe((s) => {
-              if (s === "SUBSCRIBED") {
-                cancelCh.send({
-                  type: "broadcast",
-                  event: "call-cancelled",
-                  payload: { from: user!.id },
-                });
-                setTimeout(() => supabase.removeChannel(cancelCh), 1000);
-              }
-            });
+            void sendOneOffBroadcast(
+              `user-${targetId}-cancel`,
+              `Cancel notify channel ${targetId}`,
+              "call-cancelled",
+              { from: user!.id }
+            );
             supabase.removeChannel(personalAnswerCh);
             cleanup();
           }
@@ -483,10 +565,7 @@ export const useWebRTC = () => {
       });
 
       // Subscribe first, then set descriptions
-      await ch.subscribe((status) => {
-        console.log("Receiver channel status:", status);
-      });
-      await new Promise((r) => setTimeout(r, 500));
+      await waitForChannelSubscribed(ch, "Receiver call channel");
 
       // Set remote description (the offer), create answer
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -495,41 +574,26 @@ export const useWebRTC = () => {
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      await waitForIceGatheringComplete(pc);
+      const answerDescription = getLocalDescriptionOrThrow(pc, "answer");
 
-      const answerPayload = { answer, from: user.id, remoteName: user.name };
+      const answerPayload = { answer: answerDescription, from: user.id, remoteName: user.name };
 
       // Send answer on shared channel
-      ch.send({
-        type: "broadcast",
-        event: "answer",
-        payload: answerPayload,
-      });
+      await sendBroadcastMessage(ch, "answer", answerPayload);
 
       // Also send answer on caller's personal channel as backup
       const callerAnswerCh = supabase.channel(`user-${callerId}-answer`);
-      await callerAnswerCh.subscribe();
-      await new Promise((r) => setTimeout(r, 300));
-      callerAnswerCh.send({
-        type: "broadcast",
-        event: "call-answer",
-        payload: answerPayload,
-      });
+      await waitForChannelSubscribed(callerAnswerCh, `Caller answer channel ${callerId}`);
+      await sendBroadcastMessage(callerAnswerCh, "call-answer", answerPayload);
 
       // Retry sending answer a few times to handle race conditions
       for (let i = 0; i < 3; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         if (pc.connectionState === "connected" || pc.iceConnectionState === "connected") break;
         console.log(`Retrying answer send (attempt ${i + 2})...`);
-        ch.send({
-          type: "broadcast",
-          event: "answer",
-          payload: answerPayload,
-        });
-        callerAnswerCh.send({
-          type: "broadcast",
-          event: "call-answer",
-          payload: answerPayload,
-        });
+        await sendBroadcastMessage(ch, "answer", answerPayload);
+        await sendBroadcastMessage(callerAnswerCh, "call-answer", answerPayload);
       }
 
       setTimeout(() => supabase.removeChannel(callerAnswerCh), 10000);
@@ -543,15 +607,7 @@ export const useWebRTC = () => {
   const rejectCall = useCallback(async () => {
     if (!incomingCall || !user) return;
     const channelName = getChannelName(user.id, incomingCall.callerId);
-    const ch = supabase.channel(channelName);
-    await ch.subscribe();
-    await new Promise((r) => setTimeout(r, 300));
-    ch.send({
-      type: "broadcast",
-      event: "reject",
-      payload: { from: user.id },
-    });
-    setTimeout(() => supabase.removeChannel(ch), 1000);
+    await sendOneOffBroadcast(channelName, `Reject channel ${channelName}`, "reject", { from: user.id });
     pendingOfferRef.current = null;
     setIncomingCall(null);
   }, [incomingCall, user]);
@@ -560,24 +616,15 @@ export const useWebRTC = () => {
     if (user) {
       // If we're still calling (not yet connected), also notify the target's personal channel
       if (callState.status === "calling" && callState.remoteUserId) {
-        const targetCh = supabase.channel(`user-${callState.remoteUserId}-cancel`);
-        targetCh.subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            targetCh.send({
-              type: "broadcast",
-              event: "call-cancelled",
-              payload: { from: user.id },
-            });
-            setTimeout(() => supabase.removeChannel(targetCh), 1000);
-          }
-        });
+        void sendOneOffBroadcast(
+          `user-${callState.remoteUserId}-cancel`,
+          `Cancel notify channel ${callState.remoteUserId}`,
+          "call-cancelled",
+          { from: user.id }
+        );
       }
       if (channelRef.current) {
-        channelRef.current.send({
-          type: "broadcast",
-          event: "hangup",
-          payload: { from: user.id },
-        });
+        void sendBroadcastMessage(channelRef.current, "hangup", { from: user.id });
       }
     }
     cleanup();
