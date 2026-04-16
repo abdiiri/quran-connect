@@ -5,6 +5,25 @@ import { Mic, MicOff, Video, VideoOff, PhoneOff, Signal, SignalLow, SignalMedium
 import InCallQuiz from "@/components/InCallQuiz";
 import { ConnectionQuality } from "@/hooks/useWebRTC";
 
+const attachStreamToElement = async (
+  element: HTMLMediaElement | null,
+  stream: MediaStream | null,
+) => {
+  if (!element) return;
+
+  if (element.srcObject !== stream) {
+    element.srcObject = stream;
+  }
+
+  if (!stream) return;
+
+  try {
+    await element.play();
+  } catch {
+    // Ignore autoplay rejections; the active call UI gives the browser another chance on interaction.
+  }
+};
+
 const qualityConfig: Record<ConnectionQuality, { icon: typeof Signal; color: string; label: string }> = {
   excellent: { icon: Signal, color: "text-green-400", label: "Excellent" },
   good: { icon: Signal, color: "text-green-300", label: "Good" },
@@ -18,6 +37,7 @@ const CallScreen = () => {
   const { callState, endCall, toggleMute, toggleCamera, connectionQuality } = useCall();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const [callDuration, setCallDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -55,16 +75,13 @@ const CallScreen = () => {
   }, [status, navigate]);
 
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
+    void attachStreamToElement(localVideoRef.current, localStream);
   }, [localStream]);
 
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
+    void attachStreamToElement(remoteVideoRef.current, remoteStream);
+    void attachStreamToElement(remoteAudioRef.current, remoteStream);
+  }, [remoteStream, remoteCameraOff]);
 
   const handleEndCall = () => {
     endCall();
@@ -75,12 +92,21 @@ const CallScreen = () => {
 
   return (
     <div className="min-h-screen bg-foreground flex flex-col relative">
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        aria-hidden="true"
+        className="pointer-events-none absolute h-0 w-0 opacity-0"
+      />
+
       {/* Remote video (full area) */}
       {callType === "video" && remoteStream && !remoteCameraOff && (
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
+          muted
           className="absolute inset-0 w-full h-full object-cover"
         />
       )}
