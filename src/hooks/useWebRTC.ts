@@ -250,6 +250,8 @@ export const useWebRTC = () => {
         console.log("Incoming PeerJS media call from:", call.peer);
         const meta = call.metadata as { callType: CallType; callerName: string; callerId: string } | undefined;
         mediaConnRef.current = call;
+        // Set up listeners on the incoming call IMMEDIATELY so we don't miss the stream event after answering
+        setupMediaConnection(call);
         pendingIncomingMeta.current = {
           callType: meta?.callType || "audio",
           callerName: meta?.callerName || "Unknown",
