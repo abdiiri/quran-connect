@@ -18,13 +18,15 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useUser();
+  const { user, loading } = useUser();
+  if (loading) return <div className="min-h-screen gradient-primary" />;
   if (!user) return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 
 const PublicRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useUser();
+  const { user, loading } = useUser();
+  if (loading) return <div className="min-h-screen gradient-primary" />;
   if (user) return <Navigate to="/home" replace />;
   return <>{children}</>;
 };
