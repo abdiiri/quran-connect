@@ -25,13 +25,7 @@ serve(async (req) => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomName,
-          // Auto-cleanup empty rooms after 5 min so we don't hit limits
-          autoJoin: false,
-          enableScreenShare: true,
-          enableChat: false,
-        }),
+        body: JSON.stringify({ roomName }),
       }
     );
 
