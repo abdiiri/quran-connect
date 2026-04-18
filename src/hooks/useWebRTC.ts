@@ -130,11 +130,16 @@ export const useWebRTC = () => {
 
   const setupMediaConnection = useCallback((call: MediaConnection) => {
     mediaConnRef.current = call;
+    // Remove any existing listeners to avoid duplicates if setup is called twice
+    call.off("stream");
+    call.off("close");
+    call.off("error");
     call.on("stream", (remoteStream) => {
-      console.log("Got remote stream");
+      console.log("Got remote stream with tracks:", remoteStream.getTracks().map(t => `${t.kind}:${t.readyState}`).join(", "));
       setCallState((s) => ({ ...s, remoteStream, status: "connected" }));
     });
     call.on("close", () => {
+      console.log("Media connection closed");
       cleanup();
     });
     call.on("error", (err) => {
