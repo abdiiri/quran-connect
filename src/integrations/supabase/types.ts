@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       app_users: {
         Row: {
+          auth_user_id: string | null
           created_at: string
           id: string
           is_online: boolean
@@ -24,6 +25,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          auth_user_id?: string | null
           created_at?: string
           id?: string
           is_online?: boolean
@@ -32,6 +34,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          auth_user_id?: string | null
           created_at?: string
           id?: string
           is_online?: boolean
