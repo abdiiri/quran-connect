@@ -1,223 +1,145 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCall } from "@/contexts/CallContext";
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Signal, SignalLow, SignalMedium, SignalZero } from "lucide-react";
-import InCallQuiz from "@/components/InCallQuiz";
-import { ConnectionQuality } from "@/hooks/useWebRTC";
+import { useUser } from "@/contexts/UserContext";
+import { PhoneOff } from "lucide-react";
 
-const attachStreamToElement = async (
-  element: HTMLMediaElement | null,
-  stream: MediaStream | null,
-) => {
-  if (!element) return;
+// Metered Embed SDK loader
+const METERED_SDK_URL = "https://cdn.metered.ca/sdk/frame/1.4.3/sdk-frame.min.js";
 
-  if (element.srcObject !== stream) {
-    element.srcObject = stream;
+declare global {
+  interface Window {
+    MeteredFrame?: new () => {
+      init: (opts: Record<string, unknown>, el: HTMLElement) => void;
+      on?: (event: string, cb: (...args: unknown[]) => void) => void;
+      destroy?: () => void;
+    };
   }
+}
 
-  if (!stream) return;
-
-  try {
-    await element.play();
-  } catch {
-    // Ignore autoplay rejections; the active call UI gives the browser another chance on interaction.
-  }
-};
-
-const qualityConfig: Record<ConnectionQuality, { icon: typeof Signal; color: string; label: string }> = {
-  excellent: { icon: Signal, color: "text-green-400", label: "Excellent" },
-  good: { icon: Signal, color: "text-green-300", label: "Good" },
-  fair: { icon: SignalMedium, color: "text-yellow-400", label: "Fair" },
-  poor: { icon: SignalLow, color: "text-red-400", label: "Poor" },
-  unknown: { icon: SignalZero, color: "text-primary-foreground/40", label: "Connecting" },
+const loadMeteredSDK = (): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (window.MeteredFrame) return resolve();
+    const existing = document.querySelector(`script[src="${METERED_SDK_URL}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("SDK load failed")));
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = METERED_SDK_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Metered SDK failed to load"));
+    document.head.appendChild(script);
+  });
 };
 
 const CallScreen = () => {
   const navigate = useNavigate();
-  const { callState, endCall, toggleMute, toggleCamera, connectionQuality } = useCall();
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const [callDuration, setCallDuration] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { user } = useUser();
+  const { callState, endCall } = useCall();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<ReturnType<NonNullable<typeof window.MeteredFrame>> | null>(null);
 
-  const { status, callType, remoteUserId, remoteName, isMuted, isCameraOff, remoteCameraOff, localStream, remoteStream } = callState;
+  const { status, remoteUserId, remoteName, roomURL, callType } = callState;
+  const displayName = remoteName || `User ${remoteUserId}`;
 
-  // Call duration timer
+  // Bounce back to /call if there's no active call
   useEffect(() => {
-    if (status === "connected") {
-      setCallDuration(0);
-      timerRef.current = setInterval(() => {
-        setCallDuration((d) => d + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      setCallDuration(0);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [status]);
-
-  const formatDuration = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
-    const s = (seconds % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
-  };
-
-  useEffect(() => {
-    if (status === "idle") {
-      navigate("/call");
-    }
+    if (status === "idle") navigate("/call");
   }, [status, navigate]);
 
+  // Initialize the Metered frame when we have a roomURL and we're connected/calling
   useEffect(() => {
-    void attachStreamToElement(localVideoRef.current, localStream);
-  }, [localStream]);
+    if (!roomURL || !containerRef.current) return;
+    // Only mount the iframe once we're connected (both sides agreed) — for caller, that means accept received.
+    // For receiver, status is connected immediately on accept.
+    if (status !== "connected") return;
 
-  useEffect(() => {
-    void attachStreamToElement(remoteVideoRef.current, remoteStream);
-    void attachStreamToElement(remoteAudioRef.current, remoteStream);
-  }, [remoteStream, remoteCameraOff]);
+    let cancelled = false;
+
+    loadMeteredSDK()
+      .then(() => {
+        if (cancelled || !window.MeteredFrame || !containerRef.current) return;
+        const frame = new window.MeteredFrame();
+        frame.init(
+          {
+            roomURL,
+            name: user?.name || "Guest",
+            autoJoin: true,
+            joinVideoOn: callType === "video",
+            joinAudioOn: true,
+            showInviteBox: false,
+            disableChat: true,
+            width: "100%",
+            height: "100%",
+          },
+          containerRef.current
+        );
+        frameRef.current = frame;
+
+        // Listen for the participant leaving the call
+        frame.on?.("leftMeeting", () => {
+          endCall();
+        });
+      })
+      .catch((err) => {
+        console.error("Metered init error:", err);
+      });
+
+    return () => {
+      cancelled = true;
+      try {
+        frameRef.current?.destroy?.();
+      } catch {
+        /* ignore */
+      }
+      if (containerRef.current) containerRef.current.innerHTML = "";
+      frameRef.current = null;
+    };
+  }, [roomURL, status, user?.name, callType, endCall]);
 
   const handleEndCall = () => {
     endCall();
     navigate("/call");
   };
 
-  const displayName = remoteName || `User ${remoteUserId}`;
-
   return (
     <div className="min-h-screen bg-foreground flex flex-col relative">
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        playsInline
-        aria-hidden="true"
-        className="pointer-events-none absolute h-0 w-0 opacity-0"
-      />
-
-      {/* Remote video (full area) */}
-      {callType === "video" && remoteStream && !remoteCameraOff && (
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-      )}
-
-      {/* Remote camera off - show avatar */}
-      {callType === "video" && remoteCameraOff && (
-        <div className="absolute inset-0 flex items-center justify-center bg-foreground">
-          <div className="w-32 h-32 rounded-full gradient-primary flex items-center justify-center">
-            <span className="text-primary-foreground text-4xl font-bold">
-              {displayName.slice(0, 2).toUpperCase()}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Local video (small overlay) - always mounted to preserve srcObject */}
-      {callType === "video" && localStream && (
-        <video
-          ref={localVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className={`absolute top-6 right-6 w-28 h-40 object-cover rounded-2xl border-2 border-primary-foreground/30 z-10 ${isCameraOff ? "hidden" : ""}`}
-        />
-      )}
-
-      {/* Local camera off - show small avatar */}
-      {callType === "video" && isCameraOff && (
-        <div className="absolute top-6 right-6 w-28 h-40 rounded-2xl border-2 border-primary-foreground/30 z-10 bg-muted flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center">
-            <span className="text-primary-foreground text-sm font-bold">You</span>
-          </div>
-        </div>
-      )}
-
-      {/* Content overlay */}
-      <div className="flex-1 flex flex-col items-center justify-between relative z-10">
-        {/* Top info */}
-        <div className="text-center pt-14 animate-fade-in">
-          <div className="w-20 h-20 rounded-full gradient-primary mx-auto flex items-center justify-center mb-3">
-            <span className="text-primary-foreground text-2xl font-bold">
-              {displayName.slice(0, 2).toUpperCase()}
-            </span>
-          </div>
-          <h2 className="text-primary-foreground text-xl font-semibold">{displayName}</h2>
-          <p className="text-primary-foreground/60 text-sm mt-1">
-            {status === "calling" ? (
-              <span className="flex items-center justify-center gap-1">
-                Calling<span className="animate-pulse">...</span>
+      {/* Calling state — waiting for receiver to answer */}
+      {status === "calling" && (
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-6 animate-fade-in">
+          <div className="relative mx-auto w-28 h-28 mb-6">
+            <div className="absolute inset-0 rounded-full gradient-primary animate-pulse-ring" />
+            <div className="absolute inset-0 rounded-full gradient-primary animate-pulse-ring [animation-delay:0.5s]" />
+            <div className="relative w-28 h-28 rounded-full gradient-primary flex items-center justify-center">
+              <span className="text-primary-foreground text-3xl font-bold">
+                {displayName.slice(0, 2).toUpperCase()}
               </span>
-            ) : status === "connected" ? (
-              formatDuration(callDuration)
-            ) : (
-              status
-            )}
-          </p>
-          {/* Connection quality indicator */}
-          {status === "connected" && (() => {
-            const qc = qualityConfig[connectionQuality];
-            const QIcon = qc.icon;
-            return (
-              <div className={`flex items-center justify-center gap-1 mt-1 ${qc.color}`}>
-                <QIcon className="w-4 h-4" />
-                <span className="text-xs">{qc.label}</span>
-              </div>
-            );
-          })()}
-        </div>
-
-        {/* Middle section: audio pulse OR quiz */}
-        <div className="flex-1 flex flex-col items-center justify-center">
-          {/* Audio pulse for audio calls */}
-          {callType === "audio" && status === "connected" && (
-            <div className="relative mb-4">
-              <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center">
-                <Mic className="w-7 h-7 text-primary-foreground" />
-              </div>
-              <div className="absolute inset-0 rounded-full gradient-primary animate-pulse-ring" />
             </div>
-          )}
-
-          {/* Quiz section - inline between avatar and controls */}
-          {status === "connected" && <InCallQuiz />}
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-6 pb-8 animate-fade-in">
-          <button
-            onClick={toggleMute}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? "bg-destructive" : "bg-primary-foreground/20"}`}
-          >
-            {isMuted ? <MicOff className="w-6 h-6 text-primary-foreground" /> : <Mic className="w-6 h-6 text-primary-foreground" />}
-          </button>
-
-          {callType === "video" && (
-            <button
-              onClick={toggleCamera}
-              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isCameraOff ? "bg-destructive" : "bg-primary-foreground/20"}`}
-            >
-              {isCameraOff ? <VideoOff className="w-6 h-6 text-primary-foreground" /> : <Video className="w-6 h-6 text-primary-foreground" />}
-            </button>
-          )}
+          </div>
+          <h2 className="text-primary-foreground text-2xl font-semibold">{displayName}</h2>
+          <p className="text-primary-foreground/60 text-sm mt-2">
+            Calling<span className="animate-pulse">...</span>
+          </p>
 
           <button
             onClick={handleEndCall}
-            className="w-16 h-16 rounded-full bg-destructive flex items-center justify-center hover:opacity-90 transition-all"
+            className="mt-12 w-16 h-16 rounded-full bg-destructive flex items-center justify-center hover:opacity-90 transition-all"
+            aria-label="Cancel call"
           >
             <PhoneOff className="w-7 h-7 text-destructive-foreground" />
           </button>
         </div>
-      </div>
+      )}
+
+      {/* Connected — Metered iframe handles all media + controls */}
+      {status === "connected" && (
+        <div className="flex-1 relative">
+          <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+        </div>
+      )}
     </div>
   );
 };
