@@ -1,7 +1,7 @@
 import { useCall } from "@/contexts/CallContext";
 import { useUser } from "@/contexts/UserContext";
 import { arabicAlphabet } from "@/data/arabicAlphabet";
-import { QuizLetter } from "@/hooks/useWebRTC";
+import { QuizLetter } from "@/hooks/useMeteredCall";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Volume2 } from "lucide-react";

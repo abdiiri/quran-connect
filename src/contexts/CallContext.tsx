@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode } from "react";
-import { useWebRTC, CallStatus, CallType, QuizLetter, ConnectionQuality, PeerStatus } from "@/hooks/useWebRTC";
+import { useMeteredCall, CallStatus, CallType, QuizLetter, ConnectionQuality, PeerStatus } from "@/hooks/useMeteredCall";
 
 interface CallContextType {
   callState: {
@@ -12,8 +12,9 @@ interface CallContextType {
     remoteCameraOff: boolean;
     localStream: MediaStream | null;
     remoteStream: MediaStream | null;
+    roomURL: string;
   };
-  incomingCall: { callerId: string; callerName: string; callType: CallType } | null;
+  incomingCall: { callerId: string; callerName: string; callType: CallType; roomURL: string } | null;
   quizLetter: QuizLetter | null;
   connectionQuality: ConnectionQuality;
   peerStatus: PeerStatus;
@@ -29,13 +30,8 @@ interface CallContextType {
 const CallContext = createContext<CallContextType | undefined>(undefined);
 
 export const CallProvider = ({ children }: { children: ReactNode }) => {
-  const webrtc = useWebRTC();
-
-  return (
-    <CallContext.Provider value={webrtc}>
-      {children}
-    </CallContext.Provider>
-  );
+  const call = useMeteredCall();
+  return <CallContext.Provider value={call}>{children}</CallContext.Provider>;
 };
 
 export const useCall = () => {
