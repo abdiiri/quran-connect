@@ -130,11 +130,16 @@ export const useWebRTC = () => {
 
   const setupMediaConnection = useCallback((call: MediaConnection) => {
     mediaConnRef.current = call;
+    // Remove any existing listeners to avoid duplicates if setup is called twice
+    call.off("stream");
+    call.off("close");
+    call.off("error");
     call.on("stream", (remoteStream) => {
-      console.log("Got remote stream");
+      console.log("Got remote stream with tracks:", remoteStream.getTracks().map(t => `${t.kind}:${t.readyState}`).join(", "));
       setCallState((s) => ({ ...s, remoteStream, status: "connected" }));
     });
     call.on("close", () => {
+      console.log("Media connection closed");
       cleanup();
     });
     call.on("error", (err) => {
@@ -245,6 +250,8 @@ export const useWebRTC = () => {
         console.log("Incoming PeerJS media call from:", call.peer);
         const meta = call.metadata as { callType: CallType; callerName: string; callerId: string } | undefined;
         mediaConnRef.current = call;
+        // Set up listeners on the incoming call IMMEDIATELY so we don't miss the stream event after answering
+        setupMediaConnection(call);
         pendingIncomingMeta.current = {
           callType: meta?.callType || "audio",
           callerName: meta?.callerName || "Unknown",
@@ -290,7 +297,7 @@ export const useWebRTC = () => {
       setPeerStatus("disconnected");
       supabase.removeChannel(cancelChannel);
     };
-  }, [user, setupDataConnection, cleanup]);
+  }, [user, setupDataConnection, setupMediaConnection, cleanup]);
 
   // ── Initialize PeerJS ──
   useEffect(() => {
@@ -408,18 +415,17 @@ export const useWebRTC = () => {
       setIncomingCall(null);
 
       const stream = await getMedia(callType);
+      console.log("Receiver got local stream, answering with tracks:", stream.getTracks().map(t => t.kind).join(", "));
 
-      // Answer the PeerJS call with our local stream
+      // Answer the PeerJS call with our local stream — this sends our audio/video back to the caller
       pendingCall.answer(stream);
-      setupMediaConnection(pendingCall);
 
-      pendingCall.on("stream", () => {
-        startStatsPolling();
-      });
+      // Listeners are already set up from the incoming-call handler — don't re-setup
+      startStatsPolling();
 
       pendingIncomingMeta.current = null;
     },
-    [incomingCall, user, setupMediaConnection, startStatsPolling]
+    [incomingCall, user, startStatsPolling]
   );
 
   const rejectCall = useCallback(() => {
