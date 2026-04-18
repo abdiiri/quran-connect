@@ -3,7 +3,7 @@ import { useCall } from "@/contexts/CallContext";
 import { useNavigate } from "react-router-dom";
 import { BookOpen, Phone, User, Copy, Check, GraduationCap, Mic, Palette, Wifi, WifiOff } from "lucide-react";
 import { useState } from "react";
-import type { PeerStatus } from "@/hooks/useWebRTC";
+import type { PeerStatus } from "@/hooks/useMeteredCall";
 
 const peerStatusConfig: Record<PeerStatus, { color: string; label: string; dot: string }> = {
   connected: { color: "text-green-500", label: "Online", dot: "bg-green-500" },
