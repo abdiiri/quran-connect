@@ -7,13 +7,15 @@ import { PhoneOff } from "lucide-react";
 // Metered Embed SDK loader
 const METERED_SDK_URL = "https://cdn.metered.ca/sdk/frame/1.4.3/sdk-frame.min.js";
 
+interface MeteredFrameInstance {
+  init: (opts: Record<string, unknown>, el: HTMLElement) => void;
+  on?: (event: string, cb: (...args: unknown[]) => void) => void;
+  destroy?: () => void;
+}
+
 declare global {
   interface Window {
-    MeteredFrame?: new () => {
-      init: (opts: Record<string, unknown>, el: HTMLElement) => void;
-      on?: (event: string, cb: (...args: unknown[]) => void) => void;
-      destroy?: () => void;
-    };
+    MeteredFrame?: new () => MeteredFrameInstance;
   }
 }
 
@@ -40,7 +42,7 @@ const CallScreen = () => {
   const { user } = useUser();
   const { callState, endCall } = useCall();
   const containerRef = useRef<HTMLDivElement>(null);
-  const frameRef = useRef<ReturnType<NonNullable<typeof window.MeteredFrame>> | null>(null);
+  const frameRef = useRef<MeteredFrameInstance | null>(null);
 
   const { status, remoteUserId, remoteName, roomURL, callType } = callState;
   const displayName = remoteName || `User ${remoteUserId}`;
