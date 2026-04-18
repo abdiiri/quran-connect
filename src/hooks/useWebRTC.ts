@@ -415,18 +415,17 @@ export const useWebRTC = () => {
       setIncomingCall(null);
 
       const stream = await getMedia(callType);
+      console.log("Receiver got local stream, answering with tracks:", stream.getTracks().map(t => t.kind).join(", "));
 
-      // Answer the PeerJS call with our local stream
+      // Answer the PeerJS call with our local stream — this sends our audio/video back to the caller
       pendingCall.answer(stream);
-      setupMediaConnection(pendingCall);
 
-      pendingCall.on("stream", () => {
-        startStatsPolling();
-      });
+      // Listeners are already set up from the incoming-call handler — don't re-setup
+      startStatsPolling();
 
       pendingIncomingMeta.current = null;
     },
-    [incomingCall, user, setupMediaConnection, startStatsPolling]
+    [incomingCall, user, startStatsPolling]
   );
 
   const rejectCall = useCallback(() => {
